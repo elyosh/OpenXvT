@@ -5543,7 +5543,7 @@ void Hud_UpdateMfdPages(void) {
 			case MFD_PAGE_FLIGHT_GROUPS:
 				if (pageState == MFD_PAGE_STATE_CLOSING) {
 					Mfd_DrawCraftListPage(1);
-					g_hudElementStateCache[g_hudInstrumentSetBaseIndex + HUD_MFD_CRAFT_LIST_ELEMENT] =
+					g_hudElementStateCache[g_hudInstrumentSetBaseIndex + HUD_MFD_MAP_OR_COMMAND_ELEMENT] =
 						pageState;
 				}
 				break;
@@ -5603,7 +5603,7 @@ void Hud_UpdateMfdPages(void) {
 			case MFD_PAGE_FLIGHT_GROUPS:
 				if (pageState) {
 					Mfd_DrawCraftListPage(1);
-					g_hudElementStateCache[g_hudInstrumentSetBaseIndex + HUD_MFD_CRAFT_LIST_ELEMENT] =
+					g_hudElementStateCache[g_hudInstrumentSetBaseIndex + HUD_MFD_MAP_OR_COMMAND_ELEMENT] =
 						pageState;
 				}
 				break;
