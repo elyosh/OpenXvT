@@ -115,6 +115,11 @@ void XvtCockpitReadouts_BeginTarget(int cmd) {
 		memset(&g_target, 0, sizeof g_target);
 		for (unsigned id = XVT_COCKPIT_NUMBER_TARGET_SYSTEMS; id <= XVT_COCKPIT_NUMBER_ORDER_SECONDS; ++id)
 			memset(&g_numbers[id], 0, sizeof g_numbers[id]);
+		if (cmd) {
+			/* Recapture threat-display values even when the new target has the same percentages. */
+			g_hudElementStateCache[102] = -2;
+			g_hudElementStateCache[103] = -2;
+		}
 		XvtCockpitText_ClearTargetFields();
 	}
 	g_target.object = object;
