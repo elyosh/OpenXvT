@@ -3370,6 +3370,15 @@ int collide_CheckSweptModelCollision(uint16_t sourceObjIdx, uint16_t targetObjId
 	}
 	g_collideSweepHitMeshOrdinal = 0;
 	g_collideSweepHitFraction = 2.0f;
+#ifdef XVT_MODERN
+	/* Gunner obstruction checks can include ACT explosions left in craft slots.
+	 * Relocating their data as a native OPT corrupts the sprite frame table. */
+	if ((g_modelTypeTable[target->objectType].assetFlags & 1) == 0) {
+		g_collideSweepCurrentMeshOrdinal = 0;
+		g_collideCurrentMeshVertsNode = NULL;
+		return 0;
+	}
+#endif
 	modelHandle = g_loadedModels[target->objectType];
 	model = (OptimizedPolyObject*)Memory_LockHandle(modelHandle);
 	if (model == NULL)
