@@ -1152,6 +1152,8 @@ void FlightNet_ProcessIncomingPackets(void) {
 // FUNCTION: XVT 0x464900
 int32_t FlightNet_SampleAndSendInput(void) {
 #ifdef XVT_MODERN
+	InputFrame* inserted;
+
 	FlightInput_Read(-2);
 	memset(&g_currentInputFrame, 0, sizeof g_currentInputFrame);
 	g_currentInputFrame.key = (uint8_t)g_actionKey;
@@ -1160,7 +1162,7 @@ int32_t FlightNet_SampleAndSendInput(void) {
 	g_currentInputFrame.axisR = (int8_t)(g_xvtControlRoll & 0xfe);
 	g_currentInputFrame.keyMods = (uint8_t)(g_keyMods & 3u);
 	XvtFlightControls_SampleThrottle(&g_currentInputFrame);
-	InputFrame* inserted = FlightSync_InsertInputFrame(g_localPlayer, g_inputTimestamp, &g_currentInputFrame);
+	inserted = FlightSync_InsertInputFrame(g_localPlayer, g_inputTimestamp, &g_currentInputFrame);
 	if (inserted != NULL) {
 		inserted->applied = 0;
 		inserted->valid = 1;

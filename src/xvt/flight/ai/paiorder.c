@@ -1093,7 +1093,6 @@ int16_t paiorder_rocketsonboardorder(void) {
 	uint16_t launcherIndex;
 	uint8_t projectileType;
 	uint16_t matchesRequiredClass;
-	int modelLauncherIndex;
 	uint16_t weaponSlot;
 	uint16_t lastWeaponSlot;
 
@@ -1127,9 +1126,8 @@ int16_t paiorder_rocketsonboardorder(void) {
 				continue;
 			}
 		}
-		modelLauncherIndex = launcherIndex + 257 * g_curCraft->modelIndex;
-		lastWeaponSlot = g_modelDefs[0].warheadLauncherLastSlot[modelLauncherIndex];
-		weaponSlot = g_modelDefs[0].warheadLauncherFirstSlot[modelLauncherIndex];
+		lastWeaponSlot = g_modelDefs[g_curCraft->modelIndex].warheadLauncherLastSlot[launcherIndex];
+		weaponSlot = g_modelDefs[g_curCraft->modelIndex].warheadLauncherFirstSlot[launcherIndex];
 		while (weaponSlot <= lastWeaponSlot) {
 			if (g_curCraft->weaponSlots[weaponSlot].count != 0) {
 				return 1;

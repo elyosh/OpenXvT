@@ -52,8 +52,8 @@ RemotePlayerSavedRenderPose g_remotePlayerSavedRenderPoses[8];
 static uint8_t* g_worldMessageBuffer = NULL;
 #endif
 
-// FLAGS: /O2 /G5
 #ifndef XVT_MODERN
+// FLAGS: /O2 /G5
 // FUNCTION: XVT 0x418500
 void FlightSync_QueuePredictedRemoteInputFrames(int predictedFrameDelta) {
 	int playerIdx;
