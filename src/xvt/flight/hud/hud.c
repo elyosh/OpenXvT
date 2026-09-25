@@ -1029,9 +1029,9 @@ void Hud_DrawStaticCockpitText(uint16_t playerIdx) {
 #ifdef XVT_MODERN
 		XvtCockpitText_RecordField(
 			(XvtCockpitTextFieldId)(XVT_COCKPIT_TEXT_POWER_LABEL_FIRST + layoutIndex - 122),
-			g_strCockpitOverlayText[layoutIndex - 114], XVT_COCKPIT_ALIGN_LEFT);
+			g_strCockpitOverlayText[layoutIndex - 122 + COCKPIT_OVERLAY_STR_L], XVT_COCKPIT_ALIGN_LEFT);
 #endif
-		FlightText_DrawString(g_strCockpitOverlayText[layoutIndex - 114]);
+		FlightText_DrawString(g_strCockpitOverlayText[layoutIndex - 122 + COCKPIT_OVERLAY_STR_L]);
 	}
 
 	if ((featureMask & 0x40) != 0) {
