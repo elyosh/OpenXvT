@@ -1,17 +1,11 @@
 #include "xvt/audio/frontend_sound.h"
+#include "aeron/compat/dsound.h"
+#include "xvt/assets/file.h"
 #include "xvt/audio/direct_sound.h"
 #include "xvt/audio/sound.h"
-#include "xvt/frontend/frontend_state.h"
-#ifdef XVT_MODERN
-#include "aeron/compat/dsound.h"
-#else
-int AERON_DXAPI DirectSoundCreate(const void* deviceGuid, void** outDevice, void* outerUnknown);
-
-enum { DSBCAPS_PRIMARYBUFFER = 1 };
-#endif
-#include "xvt/assets/file.h"
 #include "xvt/frontend/frontend_display.h"
 #include "xvt/frontend/frontend_draw.h"
+#include "xvt/frontend/frontend_state.h"
 
 #include <stdio.h>
 #include <string.h>

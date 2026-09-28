@@ -2,6 +2,7 @@
 #define XVT_XVT_TYPEDEFS_H
 
 #include "aeron/compat/dplay.h"
+#include "aeron/compat/dsound.h"
 
 /* Forward typedefs for every structure recovered from the
  * IDB. The defining module header declares the layout; pointer
@@ -32,9 +33,10 @@ typedef struct CraftTechStats CraftTechStats;
 typedef struct CraftWeaponSlot CraftWeaponSlot;
 typedef struct CraftWeaponStats CraftWeaponStats;
 typedef struct CutsceneEntry CutsceneEntry;
-typedef struct DSBCAPS DSBCAPS;
-typedef struct DSBUFFERDESC DSBUFFERDESC;
-typedef struct DSCAPS DSCAPS;
+/* Original Windows spellings for Aeron's shared DirectSound ABI types. */
+typedef DSBufferCaps DSBCAPS;
+typedef DSBufferDesc DSBUFFERDESC;
+typedef DSoundDeviceCaps DSCAPS;
 typedef struct DirectSoundBufferSet DirectSoundBufferSet;
 typedef struct EAIStruct EAIStruct;
 typedef struct ECondStruct ECondStruct;
@@ -79,10 +81,6 @@ typedef struct HudElementLayout HudElementLayout;
 typedef struct HudInFlightMessageRecord HudInFlightMessageRecord;
 typedef struct HudPanelSpriteFileInfo HudPanelSpriteFileInfo;
 typedef struct HudRadarBlipPoint HudRadarBlipPoint;
-typedef struct IDirectSound IDirectSound;
-typedef struct IDirectSoundBuffer IDirectSoundBuffer;
-typedef struct IDirectSoundBufferVtbl IDirectSoundBufferVtbl;
-typedef struct IDirectSoundVtbl IDirectSoundVtbl;
 typedef struct ImageQuantizerNode ImageQuantizerNode;
 typedef struct ImageQuantizerPaletteEntry ImageQuantizerPaletteEntry;
 typedef struct ImageResource ImageResource;
@@ -207,7 +205,7 @@ typedef struct Team Team;
 typedef struct TechLibrarySpecText TechLibrarySpecText;
 typedef struct TieRadioMessage TieRadioMessage;
 typedef struct TurretTargetState TurretTargetState;
-typedef struct WAVEFORMATEX WAVEFORMATEX;
+typedef DSWaveFormat WAVEFORMATEX;
 typedef struct WarheadGuidanceState WarheadGuidanceState;
 typedef struct XvtFlightGroup XvtFlightGroup;
 typedef struct XvtV10FlightGroupText XvtV10FlightGroupText;
