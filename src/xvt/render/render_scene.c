@@ -1,5 +1,6 @@
 #include "xvt/render/render_scene.h"
 #ifdef XVT_MODERN
+#include "aeron/compat/host.h"
 #include "xvt_runtime/assets/opt_native.h"
 #endif
 
@@ -490,6 +491,12 @@ void RenderScene_DrawMeshFaces(const SceneMesh* mesh) {
 		BILINEAR_TRIANGLE_FLAGS = STD3D_RS_TEXTURE_MAG_LINEAR | STD3D_RS_TEXTURE_MIN_LINEAR,
 		COLOR_KEY_TRIANGLE_FLAGS = STD3D_RS_ALPHA_BLEND
 	};
+
+#ifdef XVT_MODERN
+	/* Suppress before texture lookup so hidden classic draws do not refill the cache. */
+	if (AeronDx5_IsClassicFlightRenderingSuppressed())
+		return;
+#endif
 
 	vertexIndex = mesh->vertBaseIndex;
 	previousTexels = NULL;

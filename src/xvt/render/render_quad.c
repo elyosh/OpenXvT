@@ -1,5 +1,9 @@
 #include "xvt/render/render_quad.h"
 
+#ifdef XVT_MODERN
+#include "aeron/compat/host.h"
+#endif
+
 #include "xvt/assets/object_type.h"
 #include "xvt/flight/flight.h"
 #include "xvt/flight/flight_view.h"
@@ -118,6 +122,12 @@ void RenderQuad_DrawRotatedSprite(int angle, int screenX, int screenY, uint16_t 
 	const uint8_t* pixels;
 	int rleFormat;
 	Std3DTexCacheNode* texture;
+
+#ifdef XVT_MODERN
+	/* Suppress before texture lookup so hidden classic draws do not refill the cache. */
+	if (AeronDx5_IsClassicFlightRenderingSuppressed())
+		return;
+#endif
 
 	textureBytes = (const uint8_t*)textureLevel;
 	imageHeader = (const TexLevelImageHeader*)textureLevel;
