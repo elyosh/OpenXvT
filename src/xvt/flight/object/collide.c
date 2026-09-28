@@ -2445,14 +2445,12 @@ int16_t collide_damagecraft(uint16_t victimObjIdx, int16_t hitMeshIndex, uint16_
 			fsfx_speakorderack(g_localPlayer, victimObjIdx, 3, -1, victimObjIdx,
 							   GENERIC_IMPACT_ORDER_PROBABILITY);
 	} else {
-		int overflowDamage;
-
 		if (g_gameConfig.voiceTacticalOfficerEnabled == 2 &&
 			g_objectTable[victimObjIdx].genusId != CRAFT_GENUS_STARFIGHTER && *shieldEnergy != 0 &&
 			craft->hullDamage == 0)
 			fsfx_SpeakTacticalOfficerEvent(TACTICAL_VOICE_STATUS, TACTICAL_MSG_SHIELDS_OUT, victimObjIdx,
 										   UINT16_MAX);
-		overflowDamage = (int)damage - *shieldEnergy;
+		damage -= *shieldEnergy;
 		*shieldEnergy = 0;
 		if (g_objectTable[victimObjIdx].playerOwnerIdx != -1) {
 			int otherShieldEnergy;
@@ -2467,7 +2465,7 @@ int16_t collide_damagecraft(uint16_t victimObjIdx, int16_t hitMeshIndex, uint16_
 			}
 		}
 
-		if (overflowDamage != 0) {
+		if (damage != 0) {
 			if (damageObjectType == ION_OBJECT_TYPE_1 || damageObjectType == ION_OBJECT_TYPE_2 ||
 				damageObjectType == ION_OBJECT_TYPE_3) {
 				int16_t systemStrengthRemaining;
@@ -2483,10 +2481,9 @@ int16_t collide_damagecraft(uint16_t victimObjIdx, int16_t hitMeshIndex, uint16_
 				systemStrengthRemaining =
 					(int16_t)(g_modelDefs[craft->modelIndex].systemStrength - craft->subsystemDamage);
 				if (craft->workingSubsystems != 0 && systemStrengthRemaining <= SYSTEM_DISABLE_THRESHOLD) {
-					if (overflowDamage > 0) {
-						unsigned int disableCount =
-							(unsigned int)(overflowDamage + SYSTEM_DISABLE_DAMAGE_STEP - 1) /
-							SYSTEM_DISABLE_DAMAGE_STEP;
+					if (damage > 0) {
+						unsigned int disableCount = (unsigned int)(damage + SYSTEM_DISABLE_DAMAGE_STEP - 1) /
+													SYSTEM_DISABLE_DAMAGE_STEP;
 
 						do {
 							uint16_t subsystemIndex;
@@ -2588,10 +2585,10 @@ int16_t collide_damagecraft(uint16_t victimObjIdx, int16_t hitMeshIndex, uint16_
 				if (hitMeshIndex != -1 &&
 					ModelMesh_IsObjectTypeMeshDamageable(g_objectTable[victimObjIdx].objectType,
 														 (uint16_t)hitMeshIndex - 1) != 0)
-					overflowDamage = Craft_DamageComponent(
-						victimObjIdx, hitMeshIndex, (unsigned int)overflowDamage, attackerSourceObjIdx);
+					damage = Craft_DamageComponent(victimObjIdx, hitMeshIndex, (unsigned int)damage,
+												   attackerSourceObjIdx);
 				hullDamageBefore = craft->hullDamage;
-				craft->hullDamage = hullDamageBefore + (unsigned int)overflowDamage;
+				craft->hullDamage = hullDamageBefore + (unsigned int)damage;
 				if (g_gameConfig.voiceTacticalOfficerEnabled == 2 &&
 					g_objectTable[victimObjIdx].genusId != CRAFT_GENUS_STARFIGHTER) {
 					unsigned int threshold = MATH2_longfraction(craft->hullMax, 0xF333);
@@ -2690,14 +2687,14 @@ int16_t collide_damagecraft(uint16_t victimObjIdx, int16_t hitMeshIndex, uint16_
 					fsfx_speakorderack(g_localPlayer, victimObjIdx, 5, -1, victimObjIdx,
 									   SYSTEM_FAILURE_ORDER_PROBABILITY);
 			}
-		}
-	}
 
-	if (cockpitStatusDirty != 0 && g_objectTable[victimObjIdx].playerOwnerIdx == g_localPlayer &&
-		g_replayViewMode == 0 && g_flightSimSideEffectsSuppressed == 0) {
-		FlightSurface_Lock();
-		Hud_UpdateCraftSystemStatusIndicators();
-		FlightSurface_Unlock();
+			if (cockpitStatusDirty != 0 && g_objectTable[victimObjIdx].playerOwnerIdx == g_localPlayer &&
+				g_replayViewMode == 0 && g_flightSimSideEffectsSuppressed == 0) {
+				FlightSurface_Lock();
+				Hud_UpdateCraftSystemStatusIndicators();
+				FlightSurface_Unlock();
+			}
+		}
 	}
 
 	if (g_flightSimSideEffectsSuppressed == 0 &&
@@ -2857,15 +2854,18 @@ int16_t collide_damagecraft(uint16_t victimObjIdx, int16_t hitMeshIndex, uint16_
 							uint16_t detachedComponentObjIdx =
 								Object_SpawnDetachedComponent(victimObjIdx, (int16_t)meshIndex);
 							if (detachedComponentObjIdx != UINT16_MAX) {
+								int16_t wingYawOffset;
+
 								detachedRollRate = (int16_t)((GameRand() & 0x3FFF) + 0x4000);
-								detachedYawOffset = (int16_t)((GameRand() & 0x7FF) + 2048);
+								wingYawOffset = (int16_t)((GameRand() & 0x7FF) + 2048);
+								detachedYawOffset = (uint16_t)wingYawOffset;
 								if (side != 0) {
-									detachedYawOffset = (uint16_t)-detachedYawOffset;
+									wingYawOffset = -wingYawOffset;
 									detachedRollRate = -detachedRollRate;
 								}
 								g_objectTable[detachedComponentObjIdx].mobj->rollImpulseRate =
 									detachedRollRate;
-								g_objectTable[detachedComponentObjIdx].yaw += detachedYawOffset;
+								g_objectTable[detachedComponentObjIdx].yaw += wingYawOffset;
 								g_objectTable[detachedComponentObjIdx].mobj->orientMatrixDirty = 1;
 								g_objectTable[detachedComponentObjIdx].mobj->moveVectorDirty =
 									g_objectTable[detachedComponentObjIdx].mobj->orientMatrixDirty;
@@ -2892,7 +2892,7 @@ int16_t collide_damagecraft(uint16_t victimObjIdx, int16_t hitMeshIndex, uint16_
 							breakupRollRate = (uint16_t)-(int16_t)breakupRollRate;
 						g_objectTable[victimObjIdx].mobj->rollImpulseRate = (int16_t)breakupRollRate;
 					}
-					/* Recoil uses the signed, wrapped angle from the detached component. */
+					/* Parent recoil uses half the unsigned wing deflection, opposite its direction. */
 					if (detachedYawOffset != 0) {
 						detachedYawOffset = (int16_t)((uint16_t)detachedYawOffset >> 1);
 						if (side == 0)
