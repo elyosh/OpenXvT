@@ -943,10 +943,6 @@ int16_t Mission_EvaluateCondition(uint16_t conditionType, int16_t variableType, 
 		MISSION_TEAM_COUNT = 10,
 		MISSION_IFF_COUNT = 6,
 		MISSION_PLAYER_COUNT = 8,
-		MESSAGE_TRIGGER_VARIABLE_BASE = 190,
-		MESSAGE_TRIGGER_FIELD_COUNT = 3,
-		MESSAGE_TRIGGER_BONUS_STATUS_OFFSET = 2,
-		REINFORCEMENT_VARIABLE_BASE = 10,
 	};
 
 	uint16_t met;
@@ -1445,7 +1441,7 @@ int16_t Mission_EvaluateCondition(uint16_t conditionType, int16_t variableType, 
 					}
 					break;
 				case GOAL_AMT_ALL_NON_SPECIAL:
-					if ((uint16_t)(total - met) == totalSpecialCargo) {
+					if (total - met == totalSpecialCargo) {
 						status = 1;
 					} else if ((failed != 0 && metSpecialCargo == 0) ||
 							   (failed > 1 && metSpecialCargo != 0)) {
@@ -1473,7 +1469,7 @@ int16_t Mission_EvaluateCondition(uint16_t conditionType, int16_t variableType, 
 					}
 					break;
 				case GOAL_AMT_ALL_BUT_1_OF_SUBSET:
-					if ((uint16_t)(subsetTotal - 1) <= met) {
+					if (subsetTotal - 1 <= met) {
 						status = 1;
 					}
 					break;
@@ -1512,9 +1508,7 @@ int16_t Mission_EvaluateCondition(uint16_t conditionType, int16_t variableType, 
 			uint8_t goalStatus;
 
 			if (variableType == GOAL_TARGET_TEAM) {
-				goalStatus =
-					g_flightMissionState.messageTriggered[(variable - MESSAGE_TRIGGER_VARIABLE_BASE) *
-														  MESSAGE_TRIGGER_FIELD_COUNT];
+				goalStatus = g_flightMissionState.runtime.teamGoalStatus[variable][0];
 			} else {
 				goalStatus = g_flightMissionState.runtime.globalPrimaryGoalStatus;
 			}
@@ -1529,9 +1523,7 @@ int16_t Mission_EvaluateCondition(uint16_t conditionType, int16_t variableType, 
 			uint8_t goalStatus;
 
 			if (variableType == GOAL_TARGET_TEAM) {
-				goalStatus =
-					g_flightMissionState.messageTriggered[(variable - MESSAGE_TRIGGER_VARIABLE_BASE) *
-														  MESSAGE_TRIGGER_FIELD_COUNT];
+				goalStatus = g_flightMissionState.runtime.teamGoalStatus[variable][0];
 			} else {
 				goalStatus = g_flightMissionState.runtime.globalPrimaryGoalStatus;
 			}
@@ -1546,10 +1538,7 @@ int16_t Mission_EvaluateCondition(uint16_t conditionType, int16_t variableType, 
 			uint8_t goalStatus;
 
 			if (variableType == GOAL_TARGET_TEAM) {
-				goalStatus =
-					g_flightMissionState.messageTriggered[(variable - MESSAGE_TRIGGER_VARIABLE_BASE) *
-															  MESSAGE_TRIGGER_FIELD_COUNT +
-														  MESSAGE_TRIGGER_BONUS_STATUS_OFFSET];
+				goalStatus = g_flightMissionState.runtime.teamGoalStatus[variable][2];
 				if (goalStatus == 2) {
 					status = 1;
 				} else if (goalStatus == 1) {
@@ -1573,7 +1562,7 @@ int16_t Mission_EvaluateCondition(uint16_t conditionType, int16_t variableType, 
 			}
 			break;
 		case MISSION_COND_REINFORCEMENT_NOT_CALLED:
-			status = (g_flightMissionState.messageTriggered[variable - REINFORCEMENT_VARIABLE_BASE] == 0) + 1;
+			status = (g_flightMissionState.runtime.teamActiveGoalSequence[variable] == 0) + 1;
 			break;
 		case MISSION_COND_ALWAYS_PENDING:
 			status = 2;
@@ -1685,7 +1674,7 @@ int16_t Mission_EvaluateCondition(uint16_t conditionType, int16_t variableType, 
 					}
 					break;
 				case GOAL_AMT_ALL_BUT_1:
-					if ((uint16_t)(totalPlayers - currentPlayers) == 1) {
+					if (totalPlayers - currentPlayers == 1) {
 						status = 1;
 					}
 					break;
