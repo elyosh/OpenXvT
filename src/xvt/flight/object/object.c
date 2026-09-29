@@ -520,7 +520,13 @@ void Object_UpdateLifetimeAndMovement(void) {
 			case CRAFT_GENUS_OTHER_PROJECTILE: {
 				WarheadGuidanceState* guidance = mobileObject->pWarheadGuidance;
 
-				if (guidance->homingTier != 0 && guidance->targetObjIdx != UINT16_MAX) {
+				if (
+#ifdef XVT_MODERN
+					/* Expiry can convert the object after genusId was cached for movement. */
+					(object->genusId == CRAFT_GENUS_PLAYER_PROJECTILE ||
+					 object->genusId == CRAFT_GENUS_OTHER_PROJECTILE) &&
+#endif
+					guidance->homingTier != 0 && guidance->targetObjIdx != UINT16_MAX) {
 					int targetObjectIndex = guidance->targetObjIdx;
 
 					if (targetObjectIndex < g_regionMainObjectSlotEnd) {
