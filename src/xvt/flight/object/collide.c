@@ -714,14 +714,19 @@ void collide_collisions(void) {
 										 g_objectTable[candidateObjIdx].world_y;
 								deltaZ = g_objectTable[ownerObjIdx].world_z -
 										 g_objectTable[candidateObjIdx].world_z;
-								distanceSquared = deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ;
+								/* Preserve 32-bit wrapping before signed comparisons and division. */
+								distanceSquared = (int32_t)((uint32_t)deltaX * (uint32_t)deltaX +
+															(uint32_t)deltaY * (uint32_t)deltaY +
+															(uint32_t)deltaZ * (uint32_t)deltaZ);
 								if (distanceSquared <= SMALL_DISTANCE_SQUARED) {
 									impulseX = 0;
 									impulseY = BOUNCE_DIRECTION_SCALE;
 								} else {
-									deltaX *= BOUNCE_IMPULSE_SCALE * relativeSpeed;
+									deltaX = (int32_t)((uint32_t)deltaX * BOUNCE_IMPULSE_SCALE *
+													   (uint32_t)relativeSpeed);
 									impulseX = deltaX / distanceSquared;
-									deltaY *= BOUNCE_IMPULSE_SCALE * relativeSpeed;
+									deltaY = (int32_t)((uint32_t)deltaY * BOUNCE_IMPULSE_SCALE *
+													   (uint32_t)relativeSpeed);
 									impulseY = deltaY / distanceSquared;
 								}
 								if (g_objectTable[ownerObjIdx].mobj->moveVectorDirty != 0) {
@@ -762,10 +767,12 @@ void collide_collisions(void) {
 									impulseX = 0;
 									impulseY = BOUNCE_DIRECTION_SCALE;
 								} else {
-									impulseX =
-										BOUNCE_IMPULSE_SCALE * deltaX * relativeSpeed / distanceSquared;
-									impulseY =
-										BOUNCE_IMPULSE_SCALE * deltaY * relativeSpeed / distanceSquared;
+									impulseX = (int32_t)(BOUNCE_IMPULSE_SCALE * (uint32_t)deltaX *
+														 (uint32_t)relativeSpeed) /
+											   distanceSquared;
+									impulseY = (int32_t)(BOUNCE_IMPULSE_SCALE * (uint32_t)deltaY *
+														 (uint32_t)relativeSpeed) /
+											   distanceSquared;
 								}
 								if (g_objectTable[candidateObjIdx].mobj->moveVectorDirty != 0) {
 									FVIEW_calcrotatemove(g_objectTable[candidateObjIdx].pitch,
@@ -1325,13 +1332,16 @@ void collide_applyCraftImpactBounce(uint16_t craftObjIdx, uint16_t otherObjIdx) 
 		impulseY = deltaY;
 		deltaZ = g_objectTable[craftObjIdx].world_z - g_objectTable[otherObjIdx].world_z;
 	}
-	distanceSquared = deltaZ * deltaZ + impulseY * impulseY + deltaX * deltaX;
+	/* Preserve 32-bit wrapping before signed comparisons and division. */
+	distanceSquared =
+		(int32_t)((uint32_t)deltaZ * (uint32_t)deltaZ + (uint32_t)impulseY * (uint32_t)impulseY +
+				  (uint32_t)deltaX * (uint32_t)deltaX);
 	if (distanceSquared > 50) {
-		impulseX = 1000 * speed * impulseX;
+		impulseX = (int32_t)(1000u * (uint32_t)speed * (uint32_t)impulseX);
 		forceX = (int16_t)(impulseX / distanceSquared);
-		impulseY = 1000 * speed * impulseY;
+		impulseY = (int32_t)(1000u * (uint32_t)speed * (uint32_t)impulseY);
 		forceY = (int16_t)(impulseY / distanceSquared);
-		forceZ = (int16_t)(1000 * speed * deltaZ / distanceSquared);
+		forceZ = (int16_t)((int32_t)(1000u * (uint32_t)speed * (uint32_t)deltaZ) / distanceSquared);
 	} else {
 		forceX = 0;
 		forceY = 100;
@@ -1380,10 +1390,12 @@ void collide_applyCraftImpactBounce(uint16_t craftObjIdx, uint16_t otherObjIdx) 
 		int16_t bounceY;
 
 		g_objectTable[otherObjIdx].mobj->pCraft->aiFlight.impactObjIdx = craftObjIdx;
-		distanceSquared = deltaZ * deltaZ + deltaY * deltaY + deltaX * deltaX;
+		distanceSquared =
+			(int32_t)((uint32_t)deltaZ * (uint32_t)deltaZ + (uint32_t)deltaY * (uint32_t)deltaY +
+					  (uint32_t)deltaX * (uint32_t)deltaX);
 		if (distanceSquared > 50) {
-			bounceX = (int16_t)(1000 * speed * impulseX / distanceSquared);
-			bounceY = (int16_t)(1000 * speed * impulseY / distanceSquared);
+			bounceX = (int16_t)((int32_t)(1000u * (uint32_t)speed * (uint32_t)impulseX) / distanceSquared);
+			bounceY = (int16_t)((int32_t)(1000u * (uint32_t)speed * (uint32_t)impulseY) / distanceSquared);
 		} else {
 			bounceX = 0;
 			bounceY = 100;

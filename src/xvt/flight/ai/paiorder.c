@@ -844,8 +844,8 @@ int16_t paiorder_leaderdeadorder(void) {
 			 objectIndex < (int)g_activeRegionCraftObjectSlotEnd; ++objectIndex) {
 			object = &g_objectTable[objectIndex];
 			craft = object->mobj->pCraft;
-			controller = &craft->aiController;
 			if (object->objectType != 0 && object->flightGroupIdx == g_paiContext.orderFlightGroupIndex) {
+				controller = &craft->aiController;
 				if (g_paiContext.objectIndex == objectIndex) {
 					craft->leader_obj_idx = UINT8_MAX;
 					craft->aiFlight.separation = leaderCraft->aiFlight.separation;

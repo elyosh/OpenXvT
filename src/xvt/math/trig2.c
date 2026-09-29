@@ -205,8 +205,8 @@ int16_t trig2_arccos(int16_t cosQ15) {
 			delta = (uint16_t)(target - base);
 			if (delta != 0) {
 				span = (uint16_t)(g_sinTable[tableIndex - 2] - base);
-				interpolation =
-					(uint16_t)((uint16_t)(((int)(uint16_t)delta << 16) / (int)(uint16_t)span) >> 8);
+				/* Keep the shifted 32-bit pattern signed for division. */
+				interpolation = (uint16_t)((uint16_t)((int32_t)((uint32_t)delta << 16) / (int32_t)span) >> 8);
 			} else {
 				interpolation = 0;
 			}
@@ -225,7 +225,7 @@ int16_t trig2_arccos(int16_t cosQ15) {
 	} while (remainingSteps > 0);
 
 	divisor = g_sinTable[tableIndex - 1];
-	interpolation = (uint16_t)(((int)(uint16_t)target << 16) / (int)(uint16_t)divisor);
+	interpolation = (uint16_t)((int32_t)((uint32_t)target << 16) / (int32_t)divisor);
 	interpolation >>= 8;
 	interpolation = (uint16_t)-interpolation;
 	if (interpolation == 0) {
