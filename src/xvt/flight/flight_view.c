@@ -310,12 +310,14 @@ void FlightView_UpdatePlayerCamera(int playerIdx) {
 	} else {
 		cameraFocusObjIdx = g_players[playerIdx].viewState.cameraFocusObjIdx;
 		if (cameraFocusObjIdx == UINT16_MAX) {
+			ObjectRecord* playerObject;
+
 #ifdef XVT_MODERN
 			/* Mission time-limit expiry marks empty slots connected; they have no craft to orbit. */
 			if (g_players[playerIdx].objectIndex == -1)
 				return;
 #endif
-			ObjectRecord* playerObject = &g_objectTable[g_players[playerIdx].objectIndex];
+			playerObject = &g_objectTable[g_players[playerIdx].objectIndex];
 
 			trig2_ctop(playerObject->world_x - g_players[playerIdx].viewState.savedTargetX,
 					   playerObject->world_y - g_players[playerIdx].viewState.savedTargetY,
