@@ -109,7 +109,7 @@ struct MeleeTournamentSequenceState {
 	int currentMissionIndex;
 	int missionCount;
 	MeleeTournamentTeamStandings teamStandings[10];
-	int humanPlayerCount;
+	unsigned int humanPlayerCount;
 	int participatingTeamCount;
 	int quickStartAiBoostTeam;
 };
@@ -127,7 +127,7 @@ struct BattleSequenceState {
 	BattleMissionResult missionResults[10];
 	int missionOrdinals[10];
 	int missionListIndices[10];
-	int humanPlayerCount;
+	unsigned int humanPlayerCount;
 	int cumulativeScore;
 };
 

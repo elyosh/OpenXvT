@@ -75,7 +75,7 @@ struct PilotMission {
 	int bestTime;
 	int bestPlacement;
 	int awardId;
-	int bestBonus;
+	unsigned int bestBonus;
 	int field20;
 };
 
@@ -95,7 +95,7 @@ struct PilotMultiplayerMission {
 	int bestTime;
 	int bestPlacement;
 	int awardId;
-	int bestBonus;
+	unsigned int bestBonus;
 	int field2C;
 };
 
@@ -113,7 +113,7 @@ struct PilotTournament {
 	int bestScore;
 	int bestPlacement;
 	int awardId;
-	int bestMargin;
+	unsigned int bestMargin;
 	int field24;
 };
 
@@ -132,7 +132,7 @@ struct PilotMultiplayerTournament {
 	int bestPlacement;
 	int field1C;
 	int awardId;
-	int bestMargin;
+	unsigned int bestMargin;
 	int field28;
 };
 
@@ -149,7 +149,7 @@ struct PilotBattle {
 	int bestScore;
 	int field14;
 	int awardId;
-	int bestVictoryMargin;
+	unsigned int bestVictoryMargin;
 	int field20;
 };
 
@@ -167,7 +167,7 @@ struct PilotMultiplayerBattle {
 	int field14;
 	int field18;
 	int awardId;
-	int bestVictoryMargin;
+	unsigned int bestVictoryMargin;
 	int field24;
 };
 
@@ -197,7 +197,7 @@ struct PilotCampaignMission {
 	int campaignId;
 	int numberTimesFlown;
 	int awardEligible;
-	int bestScore;
+	unsigned int bestScore;
 	int awardId;
 	int bestTime;
 	int isCompleted;

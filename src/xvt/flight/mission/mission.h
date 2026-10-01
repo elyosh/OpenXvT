@@ -288,7 +288,7 @@ struct MissionFlightRuntimeState {
 	uint8_t teamGlobalGoalState[10][3];
 	uint8_t teamGoalStatus[10][3];
 	uint16_t globalGoalTriggerCounts[2][10][3][4];
-	int teamMissionCompletionTimeSeconds[10];
+	unsigned int teamMissionCompletionTimeSeconds[10];
 	uint8_t teamHasCountableCraft[10];
 	uint8_t teamActiveGoalSequence[10];
 };

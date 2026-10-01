@@ -113,7 +113,7 @@ const int g_missionAwardScoreMarginThresholds[3] = { 50000, 20000, 0 };
 
 // FLAGS: /O2 /G5
 // FUNCTION: XVT 0x498400
-void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
+int16_t FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 	enum {
 		PLAYER_COUNT = sizeof(g_players) / sizeof(g_players[0]),
 		TEAM_COUNT = sizeof(g_flightMissionState.runtime.teamGoalStatus) /
@@ -143,9 +143,8 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 	};
 
 	uint8_t activeTeamFgCount[TEAM_COUNT];
-	unsigned int connectedHumanCount;
+	int connectedHumanCount;
 	unsigned int activeTeamCount;
-	unsigned int numFlightGroups;
 	unsigned int playerIdx;
 	unsigned int networkIdx;
 	unsigned int fgIdx;
@@ -153,8 +152,8 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 	unsigned int ratingIdx;
 	unsigned int aiRatingIdx;
 	unsigned int awardThresholdIdx;
-	unsigned int award;
-	unsigned int placement;
+	int award;
+	int placement;
 	int statType;
 	int localPlayerIff;
 	int score;
@@ -174,8 +173,7 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 	}
 
 	memset(activeTeamFgCount, 0, sizeof(activeTeamFgCount));
-	numFlightGroups = (unsigned int)(int16_t)g_missionHeader.numFlightGroups;
-	for (fgIdx = 0; fgIdx < numFlightGroups; ++fgIdx) {
+	for (fgIdx = 0; fgIdx < (unsigned int)g_missionHeader.numFlightGroups; ++fgIdx) {
 		if (g_missionFlightGroups[fgIdx].fg.playerNumber != 0 && g_missionFgStats[fgIdx].hasArrived != 0) {
 			++activeTeamFgCount[g_missionFlightGroups[fgIdx].fg.team];
 		}
@@ -187,484 +185,485 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 		}
 	}
 
-	if (g_missionHeader.missionType == MISSION_TYPE_SIMULATOR_1) {
-		return;
-	}
-	if (g_missionHeader.missionType == MISSION_TYPE_JUNKYARD ||
-		g_missionHeader.missionType == MISSION_TYPE_SIMULATOR_2) {
-		statType = MISSION_STAT_TRAINING;
-	} else if (g_missionHeader.missionType == MISSION_TYPE_QUICK_START) {
-		statType = MISSION_STAT_MELEE;
-	} else {
-		statType = MISSION_STAT_COMBAT;
-		team1PlayerFgCount = 0;
-		team0PlayerFgCount = 0;
-		for (fgIdx = 0; fgIdx < numFlightGroups; ++fgIdx) {
-			if (g_missionFlightGroups[fgIdx].fg.playerNumber != 0 &&
-				g_missionFlightGroups[fgIdx].playerOwnerIdx != -1) {
-				if (g_missionFlightGroups[fgIdx].fg.team == 0) {
-					++team0PlayerFgCount;
-				} else if (g_missionFlightGroups[fgIdx].fg.team == 1) {
-					++team1PlayerFgCount;
+	if (g_missionHeader.missionType != MISSION_TYPE_SIMULATOR_1) {
+		if (g_missionHeader.missionType == MISSION_TYPE_JUNKYARD ||
+			g_missionHeader.missionType == MISSION_TYPE_SIMULATOR_2) {
+			statType = MISSION_STAT_TRAINING;
+		} else if (g_missionHeader.missionType == MISSION_TYPE_QUICK_START) {
+			statType = MISSION_STAT_MELEE;
+		} else {
+			statType = MISSION_STAT_COMBAT;
+			team1PlayerFgCount = 0;
+			team0PlayerFgCount = 0;
+			for (fgIdx = 0; fgIdx < (unsigned int)g_missionHeader.numFlightGroups; ++fgIdx) {
+				if (g_missionFlightGroups[fgIdx].fg.playerNumber != 0 &&
+					g_missionFlightGroups[fgIdx].playerOwnerIdx != -1) {
+					if (g_missionFlightGroups[fgIdx].fg.team == 0) {
+						++team0PlayerFgCount;
+					} else if (g_missionFlightGroups[fgIdx].fg.team == 1) {
+						++team1PlayerFgCount;
+					}
+				}
+			}
+			if (g_pilotData.missionSequenceActive == 1) {
+				if (team1PlayerFgCount == 0) {
+					if (g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] != 1 &&
+						g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] == 0) {
+						g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] = 1;
+					}
+				} else if (team0PlayerFgCount == 0 &&
+						   g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] != 1 &&
+						   g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] == 0) {
+					g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] = 1;
+				}
+			} else if (connectedHumanCount == 1) {
+				if (team1PlayerFgCount == 0) {
+					if (g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] != 1) {
+						g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_SECONDARY] = 1;
+						g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] = 1;
+					}
+				} else if (team0PlayerFgCount == 0 &&
+						   g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] != 1) {
+					g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_SECONDARY] = 1;
+					g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] = 1;
 				}
 			}
 		}
-		if (g_pilotData.missionSequenceActive == 1) {
-			if (team1PlayerFgCount == 0) {
-				if (g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] != 1 &&
-					g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] == 0) {
-					g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] = 1;
-				}
-			} else if (team0PlayerFgCount == 0 &&
-					   g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] != 1 &&
-					   g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] == 0) {
-				g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] = 1;
-			}
-		} else if (connectedHumanCount == 1) {
-			if (team1PlayerFgCount == 0) {
-				if (g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] != 1) {
-					g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_SECONDARY] = 1;
-					g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] = 1;
-				}
-			} else if (team0PlayerFgCount == 0 &&
-					   g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_PRIMARY] != 1) {
-				g_flightMissionState.runtime.teamGoalStatus[1][TEAM_GOAL_SECONDARY] = 1;
-				g_flightMissionState.runtime.teamGoalStatus[0][TEAM_GOAL_PRIMARY] = 1;
-			}
-		}
-	}
 
-	for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
-		if (g_players[playerIdx].network.directPlayId == 0) {
-			continue;
+		for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
+			if (g_players[playerIdx].network.directPlayId == 0) {
+				continue;
+			}
+			for (networkIdx = 0; networkIdx < PLAYER_COUNT; ++networkIdx) {
+				unsigned int playerFgIdx;
+				unsigned int objectType;
+				unsigned int modelIndex;
+				int remainingCraftCount;
+
+				if (g_pilotData.networkPlayers[networkIdx].directPlayId !=
+					g_players[playerIdx].network.directPlayId) {
+					continue;
+				}
+				playerFgIdx = g_players[networkIdx].boundFlightGroupIdx;
+				if (g_flightMissionState.runtime
+							.teamGoalStatus[g_players[networkIdx].playerIff][TEAM_GOAL_PRIMARY] != 1 ||
+					statType == MISSION_STAT_MELEE ||
+					g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_DEFAULT ||
+					g_missionFlightGroups[playerFgIdx].fg.numberOfWaves == UNLIMITED_WAVE_COUNT) {
+					continue;
+				}
+				remainingCraftCount = g_missionFlightGroups[playerFgIdx].fg.numberOfCraft *
+									  g_missionFgStats[playerFgIdx].wavesRemaining;
+				objectType = g_craftTypeToObjectType[g_missionFlightGroups[playerFgIdx].fg.craftType];
+				modelIndex = GetModelIndexFromType(objectType);
+				g_players[networkIdx].missionStats.missionScore += WAVE_REPLACEMENT_SCORE_FACTOR *
+																   remainingCraftCount *
+																   g_modelDefs[modelIndex].craftPointValue;
+			}
 		}
-		for (networkIdx = 0; networkIdx < PLAYER_COUNT; ++networkIdx) {
-			unsigned int playerFgIdx;
+
+		memset(&g_pilotData.objectStats, 0, sizeof(g_pilotData.objectStats));
+		localPlayerIff = (uint16_t)g_players[g_localPlayer].playerIff;
+		score = g_players[g_localPlayer].missionStats.missionScore +
+				g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][localPlayerIff];
+		++g_pilotData.totalMissionsPlayedCount;
+		++g_pilotData.factionStatistics[g_pilotData.currentFactionId].totalMissionsPlayedCount;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.totalScorePerMT[statType] += score;
+		g_pilotData.mainStats.totalScorePerMT[statType] += score;
+		if (g_pilotData.missionSequenceActive == 0) {
+			++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				  .stats.standaloneMissionsPlayedPerMT[statType];
+			++g_pilotData.mainStats.standaloneMissionsPlayedPerMT[statType];
+		} else {
+			++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				  .stats.sequenceMissionsPlayedPerMT[statType];
+			++g_pilotData.mainStats.sequenceMissionsPlayedPerMT[statType];
+		}
+
+		for (fgIdx = 0; fgIdx < (unsigned int)g_missionHeader.numFlightGroups; ++fgIdx) {
 			unsigned int objectType;
-			unsigned int modelIndex;
-			int remainingCraftCount;
+			uint16_t kills;
 
-			if (g_pilotData.networkPlayers[networkIdx].directPlayId !=
-				g_players[playerIdx].network.directPlayId) {
+			objectType = g_craftTypeToObjectType[g_missionFlightGroups[fgIdx].fg.craftType];
+			if (objectType >= OBJECT_TYPE_STAT_COUNT) {
 				continue;
 			}
-			playerFgIdx = g_players[networkIdx].boundFlightGroupIdx;
-			if (g_flightMissionState.runtime
-						.teamGoalStatus[g_players[networkIdx].playerIff][TEAM_GOAL_PRIMARY] != 1 ||
-				statType == MISSION_STAT_MELEE ||
-				g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_DEFAULT ||
-				g_missionFlightGroups[playerFgIdx].fg.numberOfWaves == UNLIMITED_WAVE_COUNT) {
-				continue;
-			}
-			remainingCraftCount = g_missionFlightGroups[playerFgIdx].fg.numberOfCraft *
-								  g_missionFgStats[playerFgIdx].wavesRemaining;
-			objectType = g_craftTypeToObjectType[g_missionFlightGroups[playerFgIdx].fg.craftType];
-			modelIndex = GetModelIndexFromType(objectType);
-			g_players[networkIdx].missionStats.missionScore +=
-				WAVE_REPLACEMENT_SCORE_FACTOR * remainingCraftCount * g_modelDefs[modelIndex].craftPointValue;
+			kills = g_players[g_localPlayer].perMissionKills.killsFullOnFlightGroup[fgIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.totalKillsPerMT[statType] +=
+				kills;
+			g_pilotData.mainStats.totalKillsPerMT[statType] += kills;
+			g_pilotData.objectStats.totalKillsPerMT[0] += kills;
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsPerCraftPerMT[statType][objectType] += kills;
+			g_pilotData.mainStats.killsPerCraftPerMT[statType][objectType] += kills;
+			g_pilotData.objectStats.killsPerCraftPerMT[0][objectType] += kills;
+			kills = g_players[g_localPlayer].perMissionKills.killsSharedOnFlightGroup[fgIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsSharedPerCraftPerMT[statType][objectType] += kills;
+			g_pilotData.mainStats.killsSharedPerCraftPerMT[statType][objectType] += kills;
+			g_pilotData.objectStats.killsSharedPerCraftPerMT[0][objectType] += kills;
+			kills = g_players[g_localPlayer].perMissionKills.killsAssistOnFlightGroup[fgIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsAssistsPerCraftPerMT[statType][objectType] += kills;
+			g_pilotData.mainStats.killsAssistsPerCraftPerMT[statType][objectType] += kills;
+			g_pilotData.objectStats.killsAssistsPerCraftPerMT[0][objectType] += kills;
 		}
-	}
 
-	memset(&g_pilotData.objectStats, 0, sizeof(g_pilotData.objectStats));
-	localPlayerIff = (uint16_t)g_players[g_localPlayer].playerIff;
-	score = g_players[g_localPlayer].missionStats.missionScore +
-			g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][localPlayerIff];
-	++g_pilotData.totalMissionsPlayedCount;
-	++g_pilotData.factionStatistics[g_pilotData.currentFactionId].totalMissionsPlayedCount;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.totalScorePerMT[statType] += score;
-	g_pilotData.mainStats.totalScorePerMT[statType] += score;
-	if (g_pilotData.missionSequenceActive == 0) {
-		++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			  .stats.standaloneMissionsPlayedPerMT[statType];
-		++g_pilotData.mainStats.standaloneMissionsPlayedPerMT[statType];
-	} else {
-		++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			  .stats.sequenceMissionsPlayedPerMT[statType];
-		++g_pilotData.mainStats.sequenceMissionsPlayedPerMT[statType];
-	}
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+			.stats.totalFriendliesKilledPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.friendliesKilled;
+		g_pilotData.mainStats.totalFriendliesKilledPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.friendliesKilled;
+		g_pilotData.objectStats.totalFriendliesKilledPerMT[0] +=
+			g_players[g_localPlayer].perMissionKills.friendliesKilled;
+		for (ratingIdx = 0; ratingIdx < PLAYER_RATING_COUNT; ++ratingIdx) {
+			uint16_t value;
 
-	for (fgIdx = 0; fgIdx < numFlightGroups; ++fgIdx) {
-		unsigned int objectType;
-		uint16_t kills;
-
-		objectType = g_craftTypeToObjectType[g_missionFlightGroups[fgIdx].fg.craftType];
-		if (objectType >= OBJECT_TYPE_STAT_COUNT) {
-			continue;
+			value = g_players[g_localPlayer].perMissionKills.killsFullOnPlayerRating[ratingIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsFullOnPlayerRatingPerMT[statType][ratingIdx] += value;
+			g_pilotData.mainStats.killsFullOnPlayerRatingPerMT[statType][ratingIdx] += value;
+			g_pilotData.objectStats.killsFullOnPlayerRatingPerMT[0][ratingIdx] += value;
+			value = g_players[g_localPlayer].perMissionKills.killsSharedOnPlayerRating[ratingIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsSharedOnPlayerRatingPerMT[statType][ratingIdx] += value;
+			g_pilotData.mainStats.killsSharedOnPlayerRatingPerMT[statType][ratingIdx] += value;
+			g_pilotData.objectStats.killsSharedOnPlayerRatingPerMT[0][ratingIdx] += value;
+			value = g_players[g_localPlayer].perMissionKills.killsAssistOnPlayerRating[ratingIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsAssistOnPlayerRatingPerMT[statType][ratingIdx] += value;
+			g_pilotData.mainStats.killsAssistOnPlayerRatingPerMT[statType][ratingIdx] += value;
+			g_pilotData.objectStats.killsAssistOnPlayerRatingPerMT[0][ratingIdx] += value;
+			value = g_players[g_localPlayer].perMissionKills.killedByPlayerRating[ratingIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killedByPlayerRatingPerMT[statType][ratingIdx] += value;
+			g_pilotData.mainStats.killedByPlayerRatingPerMT[statType][ratingIdx] += value;
+			g_pilotData.objectStats.killedByPlayerRatingPerMT[0][ratingIdx] += value;
 		}
-		kills = g_players[g_localPlayer].perMissionKills.killsFullOnFlightGroup[fgIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.totalKillsPerMT[statType] += kills;
-		g_pilotData.mainStats.totalKillsPerMT[statType] += kills;
-		g_pilotData.objectStats.totalKillsPerMT[0] += kills;
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsPerCraftPerMT[statType][objectType] += kills;
-		g_pilotData.mainStats.killsPerCraftPerMT[statType][objectType] += kills;
-		g_pilotData.objectStats.killsPerCraftPerMT[0][objectType] += kills;
-		kills = g_players[g_localPlayer].perMissionKills.killsSharedOnFlightGroup[fgIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsSharedPerCraftPerMT[statType][objectType] += kills;
-		g_pilotData.mainStats.killsSharedPerCraftPerMT[statType][objectType] += kills;
-		g_pilotData.objectStats.killsSharedPerCraftPerMT[0][objectType] += kills;
-		kills = g_players[g_localPlayer].perMissionKills.killsAssistOnFlightGroup[fgIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsAssistsPerCraftPerMT[statType][objectType] += kills;
-		g_pilotData.mainStats.killsAssistsPerCraftPerMT[statType][objectType] += kills;
-		g_pilotData.objectStats.killsAssistsPerCraftPerMT[0][objectType] += kills;
-	}
+		for (aiRatingIdx = 0; aiRatingIdx < AI_RATING_COUNT; ++aiRatingIdx) {
+			uint16_t value;
 
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.totalFriendliesKilledPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.friendliesKilled;
-	g_pilotData.mainStats.totalFriendliesKilledPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.friendliesKilled;
-	g_pilotData.objectStats.totalFriendliesKilledPerMT[0] +=
-		g_players[g_localPlayer].perMissionKills.friendliesKilled;
-	for (ratingIdx = 0; ratingIdx < PLAYER_RATING_COUNT; ++ratingIdx) {
-		uint16_t value;
+			value = g_players[g_localPlayer].perMissionKills.killsFullOnAiRating[aiRatingIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsFullOnAIRatingPerMT[statType][aiRatingIdx] += value;
+			g_pilotData.mainStats.killsFullOnAIRatingPerMT[statType][aiRatingIdx] += value;
+			g_pilotData.objectStats.killsFullOnAIRatingPerMT[0][aiRatingIdx] += value;
+			value = g_players[g_localPlayer].perMissionKills.killsSharedOnAiRating[aiRatingIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsSharedOnAIRatingPerMT[statType][aiRatingIdx] += value;
+			g_pilotData.mainStats.killsSharedOnAIRatingPerMT[statType][aiRatingIdx] += value;
+			g_pilotData.objectStats.killsSharedOnAIRatingPerMT[0][aiRatingIdx] += value;
+			value = g_players[g_localPlayer].perMissionKills.killsAssistOnAiRating[aiRatingIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killsAssistOnAIRatingPerMT[statType][aiRatingIdx] += value;
+			g_pilotData.mainStats.killsAssistOnAIRatingPerMT[statType][aiRatingIdx] += value;
+			g_pilotData.objectStats.killsAssistOnAIRatingPerMT[0][aiRatingIdx] += value;
+			value = g_players[g_localPlayer].perMissionKills.killedByAiRating[aiRatingIdx];
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+				.stats.killedByAIRatingPerMT[statType][aiRatingIdx] += value;
+			g_pilotData.mainStats.killedByAIRatingPerMT[statType][aiRatingIdx] += value;
+			g_pilotData.objectStats.killedByAIRatingPerMT[0][aiRatingIdx] += value;
+		}
 
-		value = g_players[g_localPlayer].perMissionKills.killsFullOnPlayerRating[ratingIdx];
 		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsFullOnPlayerRatingPerMT[statType][ratingIdx] += value;
-		g_pilotData.mainStats.killsFullOnPlayerRatingPerMT[statType][ratingIdx] += value;
-		g_pilotData.objectStats.killsFullOnPlayerRatingPerMT[0][ratingIdx] += value;
-		value = g_players[g_localPlayer].perMissionKills.killsSharedOnPlayerRating[ratingIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsSharedOnPlayerRatingPerMT[statType][ratingIdx] += value;
-		g_pilotData.mainStats.killsSharedOnPlayerRatingPerMT[statType][ratingIdx] += value;
-		g_pilotData.objectStats.killsSharedOnPlayerRatingPerMT[0][ratingIdx] += value;
-		value = g_players[g_localPlayer].perMissionKills.killsAssistOnPlayerRating[ratingIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsAssistOnPlayerRatingPerMT[statType][ratingIdx] += value;
-		g_pilotData.mainStats.killsAssistOnPlayerRatingPerMT[statType][ratingIdx] += value;
-		g_pilotData.objectStats.killsAssistOnPlayerRatingPerMT[0][ratingIdx] += value;
-		value = g_players[g_localPlayer].perMissionKills.killedByPlayerRating[ratingIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killedByPlayerRatingPerMT[statType][ratingIdx] += value;
-		g_pilotData.mainStats.killedByPlayerRatingPerMT[statType][ratingIdx] += value;
-		g_pilotData.objectStats.killedByPlayerRatingPerMT[0][ratingIdx] += value;
-	}
-	for (aiRatingIdx = 0; aiRatingIdx < AI_RATING_COUNT; ++aiRatingIdx) {
-		uint16_t value;
+			.stats.numSpecialInspectedPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.numSpecialInspected;
+		g_pilotData.mainStats.numSpecialInspectedPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.numSpecialInspected;
+		g_pilotData.objectStats.numSpecialInspectedPerMT[0] +=
+			g_players[g_localPlayer].perMissionKills.numSpecialInspected;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.energyFiredPerMT[statType] +=
+			g_players[g_localPlayer].missionStats.laserShotsFired;
+		g_pilotData.mainStats.energyFiredPerMT[statType] +=
+			g_players[g_localPlayer].missionStats.laserShotsFired;
+		g_pilotData.objectStats.energyFiredPerMT[0] += g_players[g_localPlayer].missionStats.laserShotsFired;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.energyFiredPerMT[statType] +=
+			g_players[g_localPlayer].missionStats.ionShotsFired;
+		g_pilotData.mainStats.energyFiredPerMT[statType] +=
+			g_players[g_localPlayer].missionStats.ionShotsFired;
+		g_pilotData.objectStats.energyFiredPerMT[0] += g_players[g_localPlayer].missionStats.ionShotsFired;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.energyHitsPerMT[statType] +=
+			g_players[g_localPlayer].missionStats.laserHitsScored;
+		g_pilotData.mainStats.energyHitsPerMT[statType] +=
+			g_players[g_localPlayer].missionStats.laserHitsScored;
+		g_pilotData.objectStats.energyHitsPerMT[0] += g_players[g_localPlayer].missionStats.laserHitsScored;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.energyHitsPerMT[statType] +=
+			g_players[g_localPlayer].missionStats.ionHitsScored;
+		g_pilotData.mainStats.energyHitsPerMT[statType] +=
+			g_players[g_localPlayer].missionStats.ionHitsScored;
+		g_pilotData.objectStats.energyHitsPerMT[0] += g_players[g_localPlayer].missionStats.ionHitsScored;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.warheadsFiredPerMT[statType] +=
+			g_players[g_localPlayer].warheadsFired;
+		g_pilotData.mainStats.warheadsFiredPerMT[statType] += g_players[g_localPlayer].warheadsFired;
+		g_pilotData.objectStats.warheadsFiredPerMT[0] += g_players[g_localPlayer].warheadsFired;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.warheadsHitsPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.warheadHits;
+		g_pilotData.mainStats.warheadsHitsPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.warheadHits;
+		g_pilotData.objectStats.warheadsHitsPerMT[0] += g_players[g_localPlayer].perMissionKills.warheadHits;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.totalCraftLossesPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.totalCraftLosses;
+		g_pilotData.mainStats.totalCraftLossesPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.totalCraftLosses;
+		g_pilotData.objectStats.totalCraftLossesPerMT[0] +=
+			g_players[g_localPlayer].perMissionKills.totalCraftLosses;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.lossesByCollisionsPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.lossesByCollisions;
+		g_pilotData.mainStats.lossesByCollisionsPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.lossesByCollisions;
+		g_pilotData.objectStats.lossesByCollisionsPerMT[0] +=
+			g_players[g_localPlayer].perMissionKills.lossesByCollisions;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.lossesByStarshipsPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.lossesByStarships;
+		g_pilotData.mainStats.lossesByStarshipsPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.lossesByStarships;
+		g_pilotData.objectStats.lossesByStarshipsPerMT[0] +=
+			g_players[g_localPlayer].perMissionKills.lossesByStarships;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.lossesByMinesPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.lossesByMines;
+		g_pilotData.mainStats.lossesByMinesPerMT[statType] +=
+			g_players[g_localPlayer].perMissionKills.lossesByMines;
+		g_pilotData.objectStats.lossesByMinesPerMT[0] +=
+			g_players[g_localPlayer].perMissionKills.lossesByMines;
+		g_pilotData.factionStatistics[g_pilotData.currentFactionId].totalScore += score;
+		g_pilotData.totalScore += score;
+		g_pilotData.missionScore = score;
+		sprintf(g_missionDebugBuffer, "Promo points: %d    Worse Promo points: %d\n",
+				g_players[g_localPlayer].missionStats.ratingPromoPoints,
+				g_players[g_localPlayer].missionStats.worseRatingPromoPoints);
 
-		value = g_players[g_localPlayer].perMissionKills.killsFullOnAiRating[aiRatingIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsFullOnAIRatingPerMT[statType][aiRatingIdx] += value;
-		g_pilotData.mainStats.killsFullOnAIRatingPerMT[statType][aiRatingIdx] += value;
-		g_pilotData.objectStats.killsFullOnAIRatingPerMT[0][aiRatingIdx] += value;
-		value = g_players[g_localPlayer].perMissionKills.killsSharedOnAiRating[aiRatingIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsSharedOnAIRatingPerMT[statType][aiRatingIdx] += value;
-		g_pilotData.mainStats.killsSharedOnAIRatingPerMT[statType][aiRatingIdx] += value;
-		g_pilotData.objectStats.killsSharedOnAIRatingPerMT[0][aiRatingIdx] += value;
-		value = g_players[g_localPlayer].perMissionKills.killsAssistOnAiRating[aiRatingIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killsAssistOnAIRatingPerMT[statType][aiRatingIdx] += value;
-		g_pilotData.mainStats.killsAssistOnAIRatingPerMT[statType][aiRatingIdx] += value;
-		g_pilotData.objectStats.killsAssistOnAIRatingPerMT[0][aiRatingIdx] += value;
-		value = g_players[g_localPlayer].perMissionKills.killedByAiRating[aiRatingIdx];
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-			.stats.killedByAIRatingPerMT[statType][aiRatingIdx] += value;
-		g_pilotData.mainStats.killedByAIRatingPerMT[statType][aiRatingIdx] += value;
-		g_pilotData.objectStats.killedByAIRatingPerMT[0][aiRatingIdx] += value;
-	}
+		g_pilotData.promotionDelta = PILOT_PROMOTION_NONE;
+		if (statType == MISSION_STAT_TRAINING) {
+			int maximumTrainingRating;
 
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.numSpecialInspectedPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.numSpecialInspected;
-	g_pilotData.mainStats.numSpecialInspectedPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.numSpecialInspected;
-	g_pilotData.objectStats.numSpecialInspectedPerMT[0] +=
-		g_players[g_localPlayer].perMissionKills.numSpecialInspected;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.energyFiredPerMT[statType] +=
-		g_players[g_localPlayer].missionStats.laserShotsFired;
-	g_pilotData.mainStats.energyFiredPerMT[statType] += g_players[g_localPlayer].missionStats.laserShotsFired;
-	g_pilotData.objectStats.energyFiredPerMT[0] += g_players[g_localPlayer].missionStats.laserShotsFired;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.energyFiredPerMT[statType] +=
-		g_players[g_localPlayer].missionStats.ionShotsFired;
-	g_pilotData.mainStats.energyFiredPerMT[statType] += g_players[g_localPlayer].missionStats.ionShotsFired;
-	g_pilotData.objectStats.energyFiredPerMT[0] += g_players[g_localPlayer].missionStats.ionShotsFired;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.energyHitsPerMT[statType] +=
-		g_players[g_localPlayer].missionStats.laserHitsScored;
-	g_pilotData.mainStats.energyHitsPerMT[statType] += g_players[g_localPlayer].missionStats.laserHitsScored;
-	g_pilotData.objectStats.energyHitsPerMT[0] += g_players[g_localPlayer].missionStats.laserHitsScored;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.energyHitsPerMT[statType] +=
-		g_players[g_localPlayer].missionStats.ionHitsScored;
-	g_pilotData.mainStats.energyHitsPerMT[statType] += g_players[g_localPlayer].missionStats.ionHitsScored;
-	g_pilotData.objectStats.energyHitsPerMT[0] += g_players[g_localPlayer].missionStats.ionHitsScored;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.warheadsFiredPerMT[statType] +=
-		g_players[g_localPlayer].warheadsFired;
-	g_pilotData.mainStats.warheadsFiredPerMT[statType] += g_players[g_localPlayer].warheadsFired;
-	g_pilotData.objectStats.warheadsFiredPerMT[0] += g_players[g_localPlayer].warheadsFired;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.warheadsHitsPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.warheadHits;
-	g_pilotData.mainStats.warheadsHitsPerMT[statType] += g_players[g_localPlayer].perMissionKills.warheadHits;
-	g_pilotData.objectStats.warheadsHitsPerMT[0] += g_players[g_localPlayer].perMissionKills.warheadHits;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.totalCraftLossesPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.totalCraftLosses;
-	g_pilotData.mainStats.totalCraftLossesPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.totalCraftLosses;
-	g_pilotData.objectStats.totalCraftLossesPerMT[0] +=
-		g_players[g_localPlayer].perMissionKills.totalCraftLosses;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.lossesByCollisionsPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.lossesByCollisions;
-	g_pilotData.mainStats.lossesByCollisionsPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.lossesByCollisions;
-	g_pilotData.objectStats.lossesByCollisionsPerMT[0] +=
-		g_players[g_localPlayer].perMissionKills.lossesByCollisions;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.lossesByStarshipsPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.lossesByStarships;
-	g_pilotData.mainStats.lossesByStarshipsPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.lossesByStarships;
-	g_pilotData.objectStats.lossesByStarshipsPerMT[0] +=
-		g_players[g_localPlayer].perMissionKills.lossesByStarships;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].stats.lossesByMinesPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.lossesByMines;
-	g_pilotData.mainStats.lossesByMinesPerMT[statType] +=
-		g_players[g_localPlayer].perMissionKills.lossesByMines;
-	g_pilotData.objectStats.lossesByMinesPerMT[0] += g_players[g_localPlayer].perMissionKills.lossesByMines;
-	g_pilotData.factionStatistics[g_pilotData.currentFactionId].totalScore += score;
-	g_pilotData.totalScore += score;
-	g_pilotData.missionScore = score;
-	sprintf(g_missionDebugBuffer, "Promo points: %d    Worse Promo points: %d\n",
-			g_players[g_localPlayer].missionStats.ratingPromoPoints,
-			g_players[g_localPlayer].missionStats.worseRatingPromoPoints);
-
-	g_pilotData.promotionDelta = PILOT_PROMOTION_NONE;
-	if (statType == MISSION_STAT_TRAINING) {
-		int maximumTrainingRating;
-
-		maximumTrainingRating = g_missionHeader.missionType == MISSION_TYPE_SIMULATOR_2
-									? PILOT_RATING_JEDI_MASTER
-									: PILOT_RATING_OFFICER_1ST_CLASS;
-		if ((unsigned int)g_pilotData.rating >= (unsigned int)maximumTrainingRating) {
-			if (g_players[g_localPlayer].missionStats.ratingPromoPoints < 0) {
+			maximumTrainingRating = g_missionHeader.missionType == MISSION_TYPE_SIMULATOR_2
+										? PILOT_RATING_JEDI_MASTER
+										: PILOT_RATING_OFFICER_1ST_CLASS;
+			if ((unsigned int)g_pilotData.rating < (unsigned int)maximumTrainingRating) {
+				g_pilotData.currentRatingPromoPoints +=
+					g_players[g_localPlayer].missionStats.ratingPromoPoints;
+				promotionThreshold = g_pilotRatingPromotionPointThresholds[g_pilotData.rating];
+				if (g_pilotData.currentRatingWorsePromoPoints < promotionThreshold / 2) {
+					g_pilotData.currentRatingWorsePromoPoints +=
+						g_players[g_localPlayer].missionStats.worseRatingPromoPoints;
+					g_pilotData.currentRatingPromoPoints +=
+						g_players[g_localPlayer].missionStats.worseRatingPromoPoints;
+				}
+				if (g_pilotData.currentRatingPromoPoints >= promotionThreshold) {
+					g_pilotData.currentRatingPromoPoints = 0;
+					g_pilotData.currentRatingWorsePromoPoints = 0;
+					g_pilotData.promotionDelta = PILOT_PROMOTION_PROMOTION;
+					++g_pilotData.rating;
+					g_pilotData.totalMissionsPlayedCountPerRating[g_pilotData.rating] =
+						g_pilotData.totalMissionsPlayedCount;
+				}
+				if (g_pilotData.currentRatingPromoPoints >= 0) {
+					g_pilotData.nextPromotionPercent =
+						MAX_PROMOTION_PERCENT * g_pilotData.currentRatingPromoPoints /
+						g_pilotRatingPromotionPointThresholds[g_pilotData.rating];
+					if (g_pilotData.nextPromotionPercent > MAX_PROMOTION_PERCENT) {
+						g_pilotData.nextPromotionPercent = MAX_PROMOTION_PERCENT;
+					}
+				} else if (g_pilotData.rating != PILOT_RATING_TARGET_DRONE) {
+					g_pilotData.nextPromotionPercent =
+						MAX_PROMOTION_PERCENT * g_pilotData.currentRatingPromoPoints / -PROMOTION_LOSS_LIMIT;
+					if (g_pilotData.nextPromotionPercent < -MAX_PROMOTION_PERCENT) {
+						g_pilotData.nextPromotionPercent = -MAX_PROMOTION_PERCENT;
+					}
+				} else {
+					g_pilotData.currentRatingPromoPoints = 0;
+					g_pilotData.currentRatingWorsePromoPoints = 0;
+					g_pilotData.nextPromotionPercent = 0;
+				}
+			} else if (g_players[g_localPlayer].missionStats.ratingPromoPoints < 0) {
 				g_pilotData.currentRatingPromoPoints +=
 					g_players[g_localPlayer].missionStats.ratingPromoPoints;
 			}
-		} else {
-			g_pilotData.currentRatingPromoPoints += g_players[g_localPlayer].missionStats.ratingPromoPoints;
-			promotionThreshold = g_pilotRatingPromotionPointThresholds[g_pilotData.rating];
-			if (g_pilotData.currentRatingWorsePromoPoints < promotionThreshold / 2) {
-				g_pilotData.currentRatingWorsePromoPoints +=
-					g_players[g_localPlayer].missionStats.worseRatingPromoPoints;
-				g_pilotData.currentRatingPromoPoints +=
-					g_players[g_localPlayer].missionStats.worseRatingPromoPoints;
-			}
-			if (g_pilotData.currentRatingPromoPoints >= promotionThreshold) {
+			if (g_pilotData.rating != PILOT_RATING_TARGET_DRONE &&
+				g_pilotData.currentRatingPromoPoints < PROMOTION_LOSS_LIMIT) {
 				g_pilotData.currentRatingPromoPoints = 0;
 				g_pilotData.currentRatingWorsePromoPoints = 0;
-				g_pilotData.promotionDelta = PILOT_PROMOTION_PROMOTION;
-				++g_pilotData.rating;
-				g_pilotData.totalMissionsPlayedCountPerRating[g_pilotData.rating] =
-					g_pilotData.totalMissionsPlayedCount;
+				--g_pilotData.rating;
+				g_pilotData.nextPromotionPercent = 0;
+				g_pilotData.promotionDelta = PILOT_PROMOTION_DEMOTION;
+				if ((unsigned int)g_pilotData.rating < PILOT_RATING_TRAINEE) {
+					g_pilotData.totalMissionsPlayedCountPerRating[g_pilotData.rating] =
+						g_pilotData.totalMissionsPlayedCount;
+				}
 			}
-			if (g_pilotData.currentRatingPromoPoints < 0) {
-				if (g_pilotData.rating == PILOT_RATING_TARGET_DRONE) {
-					g_pilotData.currentRatingPromoPoints = 0;
+		} else if (statType == MISSION_STAT_MELEE || statType == MISSION_STAT_COMBAT) {
+			if ((unsigned int)g_pilotData.rating < PILOT_RATING_JEDI_MASTER) {
+				g_pilotData.currentRatingPromoPoints +=
+					g_players[g_localPlayer].missionStats.ratingPromoPoints;
+				promotionThreshold = g_pilotRatingPromotionPointThresholds[g_pilotData.rating];
+				if (g_pilotData.currentRatingWorsePromoPoints < promotionThreshold / 2) {
+					g_pilotData.currentRatingWorsePromoPoints +=
+						g_players[g_localPlayer].missionStats.worseRatingPromoPoints;
+					g_pilotData.currentRatingPromoPoints +=
+						g_players[g_localPlayer].missionStats.worseRatingPromoPoints;
+				}
+				if (g_pilotData.currentRatingPromoPoints >= promotionThreshold) {
 					g_pilotData.currentRatingWorsePromoPoints = 0;
-					g_pilotData.nextPromotionPercent = 0;
-				} else {
+					g_pilotData.currentRatingPromoPoints -= promotionThreshold;
+					g_pilotData.promotionDelta = PILOT_PROMOTION_PROMOTION;
+					++g_pilotData.rating;
+					g_pilotData.totalMissionsPlayedCountPerRating[g_pilotData.rating] =
+						g_pilotData.totalMissionsPlayedCount;
+				}
+				if (g_pilotData.currentRatingPromoPoints >= 0) {
+					g_pilotData.nextPromotionPercent =
+						MAX_PROMOTION_PERCENT * g_pilotData.currentRatingPromoPoints /
+						g_pilotRatingPromotionPointThresholds[g_pilotData.rating];
+					if (g_pilotData.nextPromotionPercent > MAX_PROMOTION_PERCENT) {
+						g_pilotData.nextPromotionPercent = MAX_PROMOTION_PERCENT;
+					}
+				} else if (g_pilotData.rating != PILOT_RATING_TARGET_DRONE) {
 					g_pilotData.nextPromotionPercent =
 						MAX_PROMOTION_PERCENT * g_pilotData.currentRatingPromoPoints / -PROMOTION_LOSS_LIMIT;
 					if (g_pilotData.nextPromotionPercent < -MAX_PROMOTION_PERCENT) {
 						g_pilotData.nextPromotionPercent = -MAX_PROMOTION_PERCENT;
 					}
+				} else {
+					g_pilotData.currentRatingPromoPoints = 0;
+					g_pilotData.currentRatingWorsePromoPoints = 0;
+					g_pilotData.nextPromotionPercent = 0;
 				}
-			} else {
-				g_pilotData.nextPromotionPercent = MAX_PROMOTION_PERCENT *
-												   g_pilotData.currentRatingPromoPoints /
-												   g_pilotRatingPromotionPointThresholds[g_pilotData.rating];
-				if (g_pilotData.nextPromotionPercent > MAX_PROMOTION_PERCENT) {
-					g_pilotData.nextPromotionPercent = MAX_PROMOTION_PERCENT;
-				}
-			}
-		}
-		if (g_pilotData.rating != PILOT_RATING_TARGET_DRONE &&
-			g_pilotData.currentRatingPromoPoints < PROMOTION_LOSS_LIMIT) {
-			g_pilotData.currentRatingPromoPoints = 0;
-			g_pilotData.currentRatingWorsePromoPoints = 0;
-			--g_pilotData.rating;
-			g_pilotData.nextPromotionPercent = 0;
-			g_pilotData.promotionDelta = PILOT_PROMOTION_DEMOTION;
-			if ((unsigned int)g_pilotData.rating < PILOT_RATING_TRAINEE) {
-				g_pilotData.totalMissionsPlayedCountPerRating[g_pilotData.rating] =
-					g_pilotData.totalMissionsPlayedCount;
-			}
-		}
-	} else {
-		if ((unsigned int)g_pilotData.rating >= PILOT_RATING_JEDI_MASTER) {
-			if (g_players[g_localPlayer].missionStats.ratingPromoPoints < 0) {
+			} else if (g_players[g_localPlayer].missionStats.ratingPromoPoints < 0) {
 				g_pilotData.currentRatingPromoPoints +=
 					g_players[g_localPlayer].missionStats.ratingPromoPoints;
 			}
-		} else {
-			g_pilotData.currentRatingPromoPoints += g_players[g_localPlayer].missionStats.ratingPromoPoints;
-			promotionThreshold = g_pilotRatingPromotionPointThresholds[g_pilotData.rating];
-			if (g_pilotData.currentRatingWorsePromoPoints < promotionThreshold / 2) {
-				g_pilotData.currentRatingWorsePromoPoints +=
-					g_players[g_localPlayer].missionStats.worseRatingPromoPoints;
-				g_pilotData.currentRatingPromoPoints +=
-					g_players[g_localPlayer].missionStats.worseRatingPromoPoints;
-			}
-			if (g_pilotData.currentRatingPromoPoints >= promotionThreshold) {
-				g_pilotData.currentRatingPromoPoints -= promotionThreshold;
+			if (g_pilotData.rating != PILOT_RATING_TARGET_DRONE &&
+				g_pilotData.currentRatingPromoPoints < PROMOTION_LOSS_LIMIT) {
+				g_pilotData.currentRatingPromoPoints = 0;
 				g_pilotData.currentRatingWorsePromoPoints = 0;
-				g_pilotData.promotionDelta = PILOT_PROMOTION_PROMOTION;
-				++g_pilotData.rating;
-				g_pilotData.totalMissionsPlayedCountPerRating[g_pilotData.rating] =
-					g_pilotData.totalMissionsPlayedCount;
+				--g_pilotData.rating;
+				g_pilotData.nextPromotionPercent = 0;
+				g_pilotData.promotionDelta = PILOT_PROMOTION_DEMOTION;
+				if ((unsigned int)g_pilotData.rating < PILOT_RATING_TRAINEE) {
+					g_pilotData.totalMissionsPlayedCountPerRating[g_pilotData.rating] =
+						g_pilotData.totalMissionsPlayedCount;
+				}
 			}
-			if (g_pilotData.currentRatingPromoPoints < 0) {
-				if (g_pilotData.rating == PILOT_RATING_TARGET_DRONE) {
-					g_pilotData.currentRatingPromoPoints = 0;
-					g_pilotData.currentRatingWorsePromoPoints = 0;
-					g_pilotData.nextPromotionPercent = 0;
-				} else {
-					g_pilotData.nextPromotionPercent =
-						MAX_PROMOTION_PERCENT * g_pilotData.currentRatingPromoPoints / -PROMOTION_LOSS_LIMIT;
-					if (g_pilotData.nextPromotionPercent < -MAX_PROMOTION_PERCENT) {
-						g_pilotData.nextPromotionPercent = -MAX_PROMOTION_PERCENT;
+		}
+
+		for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
+			if (g_players[playerIdx].network.directPlayId == 0) {
+				continue;
+			}
+			for (networkIdx = 0; networkIdx < PLAYER_COUNT; ++networkIdx) {
+				if (g_pilotData.networkPlayers[networkIdx].directPlayId ==
+					g_players[playerIdx].network.directPlayId) {
+					g_pilotData.killsFullOnPlayer[networkIdx] =
+						g_players[g_localPlayer].perMissionKills.killsFullOnPlayer[playerIdx];
+					g_pilotData.killsSharedOnPlayer[networkIdx] =
+						g_players[g_localPlayer].perMissionKills.killsSharedOnPlayer[playerIdx];
+					g_pilotData.killsFullFromPlayer[networkIdx] =
+						g_players[g_localPlayer].perMissionKills.killsFullFromPlayer[playerIdx];
+					g_pilotData.killsSharedFromPlayer[networkIdx] =
+						g_players[g_localPlayer].perMissionKills.killsSharedFromPlayer[playerIdx];
+					break;
+				}
+			}
+		}
+		for (fgIdx = 0; fgIdx < (unsigned int)g_missionHeader.numFlightGroups; ++fgIdx) {
+			int groupAI;
+			int flightGroupRating;
+
+			g_pilotData.killsFullOnFlightGroup[fgIdx] =
+				g_players[g_localPlayer].perMissionKills.killsFullOnFlightGroup[fgIdx];
+			g_pilotData.killsSharedOnFlightGroup[fgIdx] =
+				g_players[g_localPlayer].perMissionKills.killsSharedOnFlightGroup[fgIdx];
+			g_pilotData.killsFullFromFlightGroup[fgIdx] =
+				g_players[g_localPlayer].perMissionKills.killsFullFromFlightGroup[fgIdx];
+			g_pilotData.killsSharedFromFlightGroup[fgIdx] =
+				g_players[g_localPlayer].perMissionKills.killsSharedFromFlightGroup[fgIdx];
+			if (g_missionHeader.missionType == MISSION_TYPE_QUICK_START &&
+				(g_pilotData.missionSequenceActive != 1 ||
+				 g_pilotData.meleeTournamentSequenceState.currentMissionIndex == 0)) {
+				groupAI = g_missionFlightGroups[fgIdx].fg.groupAI;
+				flightGroupRating = g_pilotKillScoreBaseByAiLevel[groupAI];
+				if (groupAI != 0) {
+					flightGroupRating += fgIdx & 3;
+				}
+				g_pilotData.flightGroupRating[fgIdx] = flightGroupRating;
+			}
+		}
+
+		for (teamIdx = 0; teamIdx < PLAYER_COUNT; ++teamIdx) {
+			PilotTeam* team;
+
+			team = &g_pilotData.teams[teamIdx];
+			team->isMissionCompleted =
+				g_flightMissionState.runtime.teamGoalStatus[teamIdx][TEAM_GOAL_PRIMARY] == 1 &&
+				g_flightMissionState.runtime.teamGoalStatus[teamIdx][TEAM_GOAL_SECONDARY] != 1;
+			team->missionScore = g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][teamIdx];
+			team->missionTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[teamIdx];
+			team->kills = g_flightMissionState.runtime.teamKillStats[TEAM_KILL_STAT_FULL][teamIdx];
+			team->killsShared = g_flightMissionState.runtime.teamKillStats[TEAM_KILL_STAT_SHARED][teamIdx];
+			team->killsAssist = g_flightMissionState.runtime.teamKillStats[TEAM_KILL_STAT_ASSIST][teamIdx];
+			if (statType == MISSION_STAT_MELEE) {
+				team->missionScore += g_flightMissionState.runtime.teamScores[TEAM_SCORE_MISSION][teamIdx];
+			} else {
+				for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
+					if (g_players[playerIdx].network.directPlayId != 0 &&
+						(uint16_t)g_players[playerIdx].playerIff == teamIdx) {
+						team->missionScore += g_players[playerIdx].missionStats.missionScore;
 					}
 				}
-			} else {
-				g_pilotData.nextPromotionPercent = MAX_PROMOTION_PERCENT *
-												   g_pilotData.currentRatingPromoPoints /
-												   g_pilotRatingPromotionPointThresholds[g_pilotData.rating];
-				if (g_pilotData.nextPromotionPercent > MAX_PROMOTION_PERCENT) {
-					g_pilotData.nextPromotionPercent = MAX_PROMOTION_PERCENT;
+			}
+		}
+		for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
+			if (g_players[playerIdx].network.directPlayId == 0) {
+				continue;
+			}
+			for (networkIdx = 0; networkIdx < PLAYER_COUNT; ++networkIdx) {
+				if (g_pilotData.networkPlayers[networkIdx].directPlayId ==
+					g_players[playerIdx].network.directPlayId) {
+					for (fgIdx = 0; fgIdx < (unsigned int)g_missionHeader.numFlightGroups; ++fgIdx) {
+						g_pilotData.networkPlayers[networkIdx].kills +=
+							g_players[playerIdx].perMissionKills.killsFullOnFlightGroup[fgIdx];
+						g_pilotData.networkPlayers[networkIdx].killsShared +=
+							g_players[playerIdx].perMissionKills.killsSharedOnFlightGroup[fgIdx];
+						g_pilotData.networkPlayers[networkIdx].killsAssist +=
+							g_players[playerIdx].perMissionKills.killsAssistOnFlightGroup[fgIdx];
+					}
+					g_pilotData.networkPlayers[networkIdx].totalScore =
+						g_players[playerIdx].missionStats.missionScore +
+						g_flightMissionState.runtime
+							.teamScores[TEAM_SCORE_BONUS_TENTHS][(uint16_t)g_players[playerIdx].playerIff];
+					g_pilotData.networkPlayers[networkIdx].totalLosses =
+						g_players[playerIdx].perMissionKills.totalCraftLosses;
+					break;
 				}
 			}
 		}
-		if (g_pilotData.rating != PILOT_RATING_TARGET_DRONE &&
-			g_pilotData.currentRatingPromoPoints < PROMOTION_LOSS_LIMIT) {
-			g_pilotData.currentRatingPromoPoints = 0;
-			g_pilotData.currentRatingWorsePromoPoints = 0;
-			--g_pilotData.rating;
-			g_pilotData.nextPromotionPercent = 0;
-			g_pilotData.promotionDelta = PILOT_PROMOTION_DEMOTION;
-			if ((unsigned int)g_pilotData.rating < PILOT_RATING_TRAINEE) {
-				g_pilotData.totalMissionsPlayedCountPerRating[g_pilotData.rating] =
-					g_pilotData.totalMissionsPlayedCount;
-			}
-		}
-	}
 
-	for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
-		if (g_players[playerIdx].network.directPlayId == 0) {
-			continue;
+		for (awardThresholdIdx = 0;
+			 awardThresholdIdx < sizeof(g_pilotData.factionStatistics[0].missionAwards) /
+									 sizeof(g_pilotData.factionStatistics[0].missionAwards[0]);
+			 ++awardThresholdIdx) {
+			g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[awardThresholdIdx] = 0;
 		}
-		for (networkIdx = 0; networkIdx < PLAYER_COUNT; ++networkIdx) {
-			if (g_pilotData.networkPlayers[networkIdx].directPlayId ==
-				g_players[playerIdx].network.directPlayId) {
-				g_pilotData.killsFullOnPlayer[networkIdx] =
-					g_players[g_localPlayer].perMissionKills.killsFullOnPlayer[playerIdx];
-				g_pilotData.killsSharedOnPlayer[networkIdx] =
-					g_players[g_localPlayer].perMissionKills.killsSharedOnPlayer[playerIdx];
-				g_pilotData.killsFullFromPlayer[networkIdx] =
-					g_players[g_localPlayer].perMissionKills.killsFullFromPlayer[playerIdx];
-				g_pilotData.killsSharedFromPlayer[networkIdx] =
-					g_players[g_localPlayer].perMissionKills.killsSharedFromPlayer[playerIdx];
-				break;
-			}
-		}
-	}
-	for (fgIdx = 0; fgIdx < numFlightGroups; ++fgIdx) {
-		int groupAI;
-		int flightGroupRating;
-
-		g_pilotData.killsFullOnFlightGroup[fgIdx] =
-			g_players[g_localPlayer].perMissionKills.killsFullOnFlightGroup[fgIdx];
-		g_pilotData.killsSharedOnFlightGroup[fgIdx] =
-			g_players[g_localPlayer].perMissionKills.killsSharedOnFlightGroup[fgIdx];
-		g_pilotData.killsFullFromFlightGroup[fgIdx] =
-			g_players[g_localPlayer].perMissionKills.killsFullFromFlightGroup[fgIdx];
-		g_pilotData.killsSharedFromFlightGroup[fgIdx] =
-			g_players[g_localPlayer].perMissionKills.killsSharedFromFlightGroup[fgIdx];
-		if (g_missionHeader.missionType == MISSION_TYPE_QUICK_START &&
-			(g_pilotData.missionSequenceActive != 1 ||
-			 g_pilotData.meleeTournamentSequenceState.currentMissionIndex == 0)) {
-			groupAI = g_missionFlightGroups[fgIdx].fg.groupAI;
-			flightGroupRating = g_pilotKillScoreBaseByAiLevel[groupAI];
-			if (groupAI != 0) {
-				flightGroupRating += fgIdx & 3;
-			}
-			g_pilotData.flightGroupRating[fgIdx] = flightGroupRating;
-		}
-	}
-
-	for (teamIdx = 0; teamIdx < PLAYER_COUNT; ++teamIdx) {
-		PilotTeam* team;
-
-		team = &g_pilotData.teams[teamIdx];
-		team->isMissionCompleted =
-			g_flightMissionState.runtime.teamGoalStatus[teamIdx][TEAM_GOAL_PRIMARY] == 1 &&
-			g_flightMissionState.runtime.teamGoalStatus[teamIdx][TEAM_GOAL_SECONDARY] != 1;
-		team->missionScore = g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][teamIdx];
-		team->missionTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[teamIdx];
-		team->kills = g_flightMissionState.runtime.teamKillStats[TEAM_KILL_STAT_FULL][teamIdx];
-		team->killsShared = g_flightMissionState.runtime.teamKillStats[TEAM_KILL_STAT_SHARED][teamIdx];
-		team->killsAssist = g_flightMissionState.runtime.teamKillStats[TEAM_KILL_STAT_ASSIST][teamIdx];
-		if (statType == MISSION_STAT_MELEE) {
-			team->missionScore += g_flightMissionState.runtime.teamScores[TEAM_SCORE_MISSION][teamIdx];
-		} else {
-			for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
-				if (g_players[playerIdx].network.directPlayId != 0 &&
-					(uint16_t)g_players[playerIdx].playerIff == teamIdx) {
-					team->missionScore += g_players[playerIdx].missionStats.missionScore;
-				}
-			}
-		}
-	}
-	for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
-		if (g_players[playerIdx].network.directPlayId == 0) {
-			continue;
-		}
-		for (networkIdx = 0; networkIdx < PLAYER_COUNT; ++networkIdx) {
-			if (g_pilotData.networkPlayers[networkIdx].directPlayId ==
-				g_players[playerIdx].network.directPlayId) {
-				for (fgIdx = 0; fgIdx < numFlightGroups; ++fgIdx) {
-					g_pilotData.networkPlayers[networkIdx].kills +=
-						g_players[playerIdx].perMissionKills.killsFullOnFlightGroup[fgIdx];
-					g_pilotData.networkPlayers[networkIdx].killsShared +=
-						g_players[playerIdx].perMissionKills.killsSharedOnFlightGroup[fgIdx];
-					g_pilotData.networkPlayers[networkIdx].killsAssist +=
-						g_players[playerIdx].perMissionKills.killsAssistOnFlightGroup[fgIdx];
-				}
-				g_pilotData.networkPlayers[networkIdx].totalScore =
-					g_players[playerIdx].missionStats.missionScore +
-					g_flightMissionState.runtime
-						.teamScores[TEAM_SCORE_BONUS_TENTHS][(uint16_t)g_players[playerIdx].playerIff];
-				g_pilotData.networkPlayers[networkIdx].totalLosses =
-					g_players[playerIdx].perMissionKills.totalCraftLosses;
-				break;
-			}
-		}
-	}
-
-	for (awardThresholdIdx = 0;
-		 awardThresholdIdx < sizeof(g_pilotData.factionStatistics[0].missionAwards) /
-								 sizeof(g_pilotData.factionStatistics[0].missionAwards[0]);
-		 ++awardThresholdIdx) {
-		g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[awardThresholdIdx] = 0;
-	}
-	award = 0;
-	switch (statType) {
-		case MISSION_STAT_TRAINING:
-			if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] != 1 ||
-				g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] == 1) {
-				if (score <= 0) {
-					award = FAILED_AWARD;
-				}
-			} else {
+		award = 0;
+		if (statType == MISSION_STAT_TRAINING) {
+			if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+														   [TEAM_GOAL_PRIMARY] == 1 &&
+				g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+														   [TEAM_GOAL_SECONDARY] != 1) {
 				award = 1;
 				for (awardThresholdIdx = 0;
 					 awardThresholdIdx < sizeof(g_missionAwardScoreMarginThresholds) /
-											 sizeof(g_missionAwardScoreMarginThresholds[0]) &&
-					 score < g_missionAwardScoreMarginThresholds[awardThresholdIdx];
+											 sizeof(g_missionAwardScoreMarginThresholds[0]);
 					 ++awardThresholdIdx) {
+					if (score >= g_missionAwardScoreMarginThresholds[awardThresholdIdx]) {
+						break;
+					}
 					++award;
 				}
-				if (g_flightMissionState.difficulty == GAME_DIFFICULTY_MEDIUM) {
-					++award;
-				} else if (g_flightMissionState.difficulty == GAME_DIFFICULTY_EASY) {
+				if (g_flightMissionState.difficulty == GAME_DIFFICULTY_EASY) {
 					award += 2;
+				} else if (g_flightMissionState.difficulty == GAME_DIFFICULTY_MEDIUM) {
+					++award;
 				}
 				if (g_flightMissionState.playerFlightGroupWaveMode == CRAFT_WAVES_UNLIMITED && award < 5) {
 					award = 5;
@@ -672,6 +671,8 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 				if (award > MAX_STORED_AWARD) {
 					award = 0;
 				}
+			} else if (score <= 0) {
+				award = FAILED_AWARD;
 			}
 			if (g_pilotData.missionSequenceActive == 1 &&
 				(g_gameConfig.difficulty > GAME_DIFFICULTY_HARD ||
@@ -681,17 +682,15 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 			if (award != 0) {
 				g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[2] = award;
 			}
-			break;
-		case MISSION_STAT_MELEE: {
+		} else if (statType == MISSION_STAT_MELEE) {
 			int playerTeamScore;
-			unsigned int betterTeamCount;
+			int betterTeamCount;
 
-			placement = 0;
+			betterTeamCount = 0;
 			margin = 0;
 			playerTeamScore =
 				g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][localPlayerIff] +
 				g_flightMissionState.runtime.teamScores[TEAM_SCORE_MISSION][localPlayerIff];
-			betterTeamCount = 0;
 			for (teamIdx = 0; teamIdx < TEAM_COUNT; ++teamIdx) {
 				int hasOpponent;
 				int opponentScore;
@@ -700,7 +699,7 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 					continue;
 				}
 				hasOpponent = 0;
-				for (fgIdx = 0; fgIdx < numFlightGroups; ++fgIdx) {
+				for (fgIdx = 0; fgIdx < (unsigned int)g_missionHeader.numFlightGroups; ++fgIdx) {
 					if (g_missionFlightGroups[fgIdx].fg.team == teamIdx &&
 						(g_missionFlightGroups[fgIdx].playerOwnerIdx != -1 ||
 						 (g_missionFlightGroups[fgIdx].fg.playerNumber != 0 &&
@@ -713,84 +712,95 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 				}
 				opponentScore = g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][teamIdx] +
 								g_flightMissionState.runtime.teamScores[TEAM_SCORE_MISSION][teamIdx];
-				if (opponentScore > playerTeamScore) {
+				if (playerTeamScore < opponentScore) {
 					++betterTeamCount;
-				} else if (margin == 0 || playerTeamScore - opponentScore < margin) {
+				} else if (playerTeamScore - opponentScore < margin || margin == 0) {
 					margin = playerTeamScore - opponentScore;
 				}
 			}
 			placement = betterTeamCount + 1;
-			if (activeTeamCount <= 1 || connectedHumanCount <= 1) {
-				if (g_flightMissionState.difficulty == GAME_DIFFICULTY_EASY) {
-					if (placement == 1) {
-						award = 5;
-					} else if (placement > 4) {
-						award = 6;
-					}
-				} else if (g_flightMissionState.difficulty == GAME_DIFFICULTY_MEDIUM) {
-					if (placement == 1) {
-						if (score <= 0) {
-							award = 5;
-						} else if (margin > 10000) {
-							award = 2;
-						} else if (margin > 5000) {
-							award = 3;
-						} else {
-							award = 4;
+			if (activeTeamCount > 1 && connectedHumanCount > 1) {
+				if ((unsigned int)placement == activeTeamCount && activeTeamCount >= 4) {
+					award = FAILED_AWARD;
+				} else if (score > 5000 && placement < 4) {
+					award = g_placementAwardLevels[3 * activeTeamCount - 4 + placement];
+				}
+				if (award != 0 && award != FAILED_AWARD) {
+					if (score < 1250) {
+						award += 2;
+						if (award > MAX_STORED_AWARD) {
+							award = MAX_STORED_AWARD;
 						}
-					} else if (placement == 2 && activeTeamCount > 2) {
-						award = 5;
-					} else if (placement > activeTeamCount || placement > 6) {
-						award = 6;
-					}
-				} else if (g_flightMissionState.difficulty == GAME_DIFFICULTY_HARD) {
-					if (placement == 1) {
-						if (score <= 0) {
-							award = 5;
-						} else if (margin > 10000) {
-							award = 1;
-						} else if (margin > 5000) {
-							award = 2;
-						} else {
-							award = 3;
+					} else if (score < 2500) {
+						++award;
+						if (award > MAX_STORED_AWARD) {
+							award = MAX_STORED_AWARD;
 						}
-					} else if (placement == 2) {
-						if (activeTeamCount > 4) {
-							award = 4;
-						} else if (activeTeamCount > 2) {
-							award = 5;
-						}
-					} else if (placement == 3 && activeTeamCount > 4) {
-						award = 5;
-					} else if (placement > 7) {
-						award = 6;
 					}
 				}
-			} else if (placement == activeTeamCount && activeTeamCount >= 4) {
-				award = FAILED_AWARD;
-			} else if (score > 5000 && placement < 4) {
-				award = g_placementAwardLevels[3 * activeTeamCount - 4 + placement];
-			}
-			if (award != 0 && award != FAILED_AWARD) {
-				if (score < 1250) {
-					award += 2;
-				} else if (score < 2500) {
-					++award;
+				if (placement == FIRST_PLACE && award > 0 && award != FAILED_AWARD) {
+					if (margin > 15000) {
+						award -= 3;
+					} else if (margin > 10000) {
+						award -= 2;
+					} else if (margin > 5000) {
+						--award;
+					}
+					if (award < 1) {
+						award = 1;
+					}
 				}
-				if (award > MAX_STORED_AWARD) {
-					award = MAX_STORED_AWARD;
-				}
-			}
-			if (placement == FIRST_PLACE && award != 0 && award != FAILED_AWARD) {
-				if (margin > 15000) {
-					award -= 3;
-				} else if (margin > 10000) {
-					award -= 2;
-				} else if (margin > 5000) {
-					--award;
-				}
-				if (award < 1) {
-					award = 1;
+			} else {
+				switch (g_flightMissionState.difficulty) {
+					case GAME_DIFFICULTY_EASY:
+						if (placement == 1) {
+							award = 5;
+						} else if (placement > 4) {
+							award = 6;
+						}
+						break;
+					case GAME_DIFFICULTY_MEDIUM:
+						if (placement == 1) {
+							if (score <= 0) {
+								award = 5;
+							} else {
+								award = 4;
+								if (margin > 10000) {
+									award = 2;
+								} else if (margin > 5000) {
+									award = 3;
+								}
+							}
+						} else if (placement == 2 && activeTeamCount > 2) {
+							award = 5;
+						} else if ((unsigned int)placement == activeTeamCount || placement > 6) {
+							award = 6;
+						}
+						break;
+					case GAME_DIFFICULTY_HARD:
+						if (placement == 1) {
+							if (score <= 0) {
+								award = 5;
+							} else {
+								award = 3;
+								if (margin > 10000) {
+									award = 1;
+								} else if (margin > 5000) {
+									award = 2;
+								}
+							}
+						} else if (placement == 2) {
+							if (activeTeamCount > 4) {
+								award = 4;
+							} else if (activeTeamCount > 2) {
+								award = 5;
+							}
+						} else if (placement == 3 && activeTeamCount > 4) {
+							award = 5;
+						} else if (placement > 7) {
+							award = 6;
+						}
+						break;
 				}
 			}
 			if (award != 0) {
@@ -798,48 +808,51 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 			}
 			sprintf(g_missionDebugBuffer, "Player's team score: %d   Place: %d   Margin: %d   Award: %d\n",
 					playerTeamScore, placement, margin, award);
-			break;
-		}
-		case MISSION_STAT_COMBAT:
+		} else if (statType == MISSION_STAT_COMBAT) {
 			if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 2 ||
 				g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] == 1) {
 				award = FAILED_AWARD;
 			} else if (connectedHumanCount == 1) {
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1) {
+				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1 &&
+					g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] != 1) {
 					award = 1;
 					for (awardThresholdIdx = 0;
 						 awardThresholdIdx < sizeof(g_missionAwardScoreMarginThresholds) /
-												 sizeof(g_missionAwardScoreMarginThresholds[0]) &&
-						 score < g_missionAwardScoreMarginThresholds[awardThresholdIdx];
+												 sizeof(g_missionAwardScoreMarginThresholds[0]);
 						 ++awardThresholdIdx) {
+						if (score >= g_missionAwardScoreMarginThresholds[awardThresholdIdx]) {
+							break;
+						}
 						++award;
 					}
-					if (g_flightMissionState.difficulty == GAME_DIFFICULTY_MEDIUM) {
-						++award;
-					} else if (g_flightMissionState.difficulty == GAME_DIFFICULTY_EASY) {
+					if (g_flightMissionState.difficulty == GAME_DIFFICULTY_EASY) {
 						award += 2;
+					} else if (g_flightMissionState.difficulty == GAME_DIFFICULTY_MEDIUM) {
+						++award;
 					}
 					if (g_flightMissionState.playerFlightGroupWaveMode == CRAFT_WAVES_UNLIMITED) {
 						award = MAX_STORED_AWARD;
 					}
-					if (award > MAX_STORED_AWARD) {
+					if (award >= FAILED_AWARD) {
 						award = 0;
 					}
 				} else if (score <= 0) {
 					award = FAILED_AWARD;
 				}
-			} else if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1) {
+			} else if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1 &&
+					   g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] !=
+						   1) {
 				award = 1;
-				for (awardThresholdIdx = 0; awardThresholdIdx < sizeof(g_missionAwardWinThresholds) /
-																	sizeof(g_missionAwardWinThresholds[0]) &&
-											score < g_missionAwardWinThresholds[awardThresholdIdx];
-					 ++awardThresholdIdx) {
+				for (awardThresholdIdx = 0; awardThresholdIdx <= 4; ++awardThresholdIdx) {
+					if (score >= g_missionAwardWinThresholds[awardThresholdIdx]) {
+						break;
+					}
 					++award;
 				}
 				if (g_flightMissionState.playerFlightGroupWaveMode == CRAFT_WAVES_UNLIMITED) {
 					award = MAX_STORED_AWARD;
 				}
-				if (award > MAX_STORED_AWARD) {
+				if (award >= FAILED_AWARD) {
 					award = 0;
 				}
 			} else if (score < -25000) {
@@ -848,1223 +861,1337 @@ void FeDiskIo_CommitFlightResults(int arg1, int arg2) {
 			if (award != 0) {
 				g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[2] = award;
 			}
-			break;
-	}
+		}
 
-	if (connectedHumanCount == 1) {
-		switch (statType) {
-			case MISSION_STAT_TRAINING:
-				if (g_pilotData.missionSequenceActive == 1) {
+		if (connectedHumanCount == 1) {
+			switch (statType) {
+				case MISSION_STAT_TRAINING: {
 					unsigned int oldAward;
 					int missionId;
 
 					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_TRAINING_EXERCISES];
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spCampaignMissions[missionId - 1]
-						  .numberTimesFlown;
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spCampaignMissions[missionId - 1]
-						.campaignId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_CAMPAIGNS];
-					if (g_pilotData.teams[g_pilotData.team].isMissionCompleted != 0) {
+					if (g_pilotData.missionSequenceActive == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spCampaignMissions[missionId - 1]
+							  .numberTimesFlown;
 						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 							.spCampaignMissions[missionId - 1]
-							.isCompleted = 1;
-					}
-					if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
-						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.spCampaignMissions[missionId - 1]
-								.bestScore < score) {
+							.campaignId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_CAMPAIGNS];
+						if (g_pilotData.teams[g_pilotData.team].isMissionCompleted != 0) {
 							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 								.spCampaignMissions[missionId - 1]
-								.bestScore = score;
+								.isCompleted = 1;
 						}
-						if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] !=
-								0 &&
-							(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] <
-								 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .spCampaignMissions[missionId - 1]
-									 .bestTime ||
-							 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .spCampaignMissions[missionId - 1]
-									 .bestTime == 0)) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.spCampaignMissions[missionId - 1]
-								.bestTime =
-								g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff];
-						}
-						if (g_pilotData.teams[g_pilotData.team].isMissionCompleted != 0 &&
-							g_gameConfig.difficulty <= GAME_DIFFICULTY_HARD) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.spCampaignMissions[missionId - 1]
-								.awardEligible = 1;
-						}
-					}
-					oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								   .spCampaignMissions[missionId - 1]
-								   .awardId;
-					if (award != 0) {
-						if (oldAward == 0 || award < oldAward) {
-							if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-														 .missionEvaluations[oldAward - 1] != 0) {
-								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									  .missionEvaluations[oldAward - 1];
+						if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
+							if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spCampaignMissions[missionId - 1]
+									.bestScore < (unsigned int)score) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spCampaignMissions[missionId - 1]
+									.bestScore = score;
 							}
+							if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+										[(uint16_t)g_players[g_localPlayer].playerIff] != 0 &&
+								(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+										 [(uint16_t)g_players[g_localPlayer].playerIff] <
+									 (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										 .spCampaignMissions[missionId - 1]
+										 .bestTime ||
+								 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										 .spCampaignMissions[missionId - 1]
+										 .bestTime == 0)) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spCampaignMissions[missionId - 1]
+									.bestTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+													[(uint16_t)g_players[g_localPlayer].playerIff];
+							}
+							if (g_pilotData.teams[g_pilotData.team].isMissionCompleted != 0 &&
+								g_gameConfig.difficulty <= GAME_DIFFICULTY_HARD) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spCampaignMissions[missionId - 1]
+									.awardEligible = 1;
+							}
+						}
+						if (award != 0) {
+							oldAward =
+								(unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spCampaignMissions[missionId - 1]
+									.awardId;
+							if (oldAward > (unsigned int)award || oldAward == 0) {
+								if (oldAward != 0 &&
+									g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+											.missionEvaluations[oldAward - 1] != 0) {
+									--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										  .missionEvaluations[oldAward - 1];
+								}
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spCampaignMissions[missionId - 1]
+									.awardId = (int)award;
+								++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[award - 1];
+							}
+						} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .spCampaignMissions[missionId - 1]
+									   .awardId == FAILED_AWARD) {
 							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 								.spCampaignMissions[missionId - 1]
-								.awardId = (int)award;
-							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[award - 1];
+								.awardId = 0;
+							if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.missionEvaluations[FAILED_AWARD - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[FAILED_AWARD - 1];
+							}
 						}
-					} else if (oldAward == FAILED_AWARD) {
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.spCampaignMissions[missionId - 1]
-							.awardId = 0;
-						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.missionEvaluations[FAILED_AWARD - 1] != 0) {
-							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[FAILED_AWARD - 1];
-						}
-					}
-				} else {
-					unsigned int oldAward;
-					int missionId;
-
-					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_TRAINING_EXERCISES];
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spTrainingMissions[missionId]
-						  .numberTimesFlown;
-					if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1) {
+					} else {
 						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 							  .spTrainingMissions[missionId]
+							  .numberTimesFlown;
+						if (g_flightMissionState.runtime
+								.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+											   [TEAM_GOAL_PRIMARY] == 1) {
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .spTrainingMissions[missionId]
+								  .completedCount;
+						}
+						if (g_flightMissionState.runtime
+									.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+												   [TEAM_GOAL_PRIMARY] == 2 ||
+							g_flightMissionState.runtime
+									.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+												   [TEAM_GOAL_SECONDARY] == 1) {
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .spTrainingMissions[missionId]
+								  .failedCount;
+						}
+						if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
+							if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spTrainingMissions[missionId]
+									.bestScore < score) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spTrainingMissions[missionId]
+									.bestScore = score;
+							}
+							if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+										[(uint16_t)g_players[g_localPlayer].playerIff] != 0 &&
+								(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+										 [(uint16_t)g_players[g_localPlayer].playerIff] <
+									 (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										 .spTrainingMissions[missionId]
+										 .bestTime ||
+								 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										 .spTrainingMissions[missionId]
+										 .bestTime == 0)) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spTrainingMissions[missionId]
+									.bestTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+													[(uint16_t)g_players[g_localPlayer].playerIff];
+							}
+						}
+						if (award != 0) {
+							oldAward =
+								(unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spTrainingMissions[missionId]
+									.awardId;
+							if (oldAward > (unsigned int)award || oldAward == 0) {
+								if (oldAward != 0 &&
+									g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+											.missionEvaluations[oldAward - 1] != 0) {
+									--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										  .missionEvaluations[oldAward - 1];
+								}
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.spTrainingMissions[missionId]
+									.awardId = (int)award;
+								++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[award - 1];
+							}
+						} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .spTrainingMissions[missionId]
+									   .awardId == FAILED_AWARD) {
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.spTrainingMissions[missionId]
+								.awardId = 0;
+							if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.missionEvaluations[FAILED_AWARD - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[FAILED_AWARD - 1];
+							}
+						}
+					}
+					break;
+				}
+				case MISSION_STAT_MELEE: {
+					unsigned int oldAward;
+					int missionId;
+
+					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_MELEES];
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .spMeleeMissions[missionId]
+						  .numberTimesFlown;
+					if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer]
+																		.playerIff][TEAM_GOAL_PRIMARY] == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spMeleeMissions[missionId]
 							  .completedCount;
 					}
-					if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 2 ||
-						g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] ==
-							1) {
+					if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer]
+																		.playerIff][TEAM_GOAL_PRIMARY] == 2 ||
+						g_flightMissionState.runtime
+								.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+											   [TEAM_GOAL_SECONDARY] == 1) {
 						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .spTrainingMissions[missionId]
+							  .spMeleeMissions[missionId]
 							  .failedCount;
 					}
-					if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
-						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.spTrainingMissions[missionId]
-								.bestScore < score) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.spTrainingMissions[missionId]
-								.bestScore = score;
-						}
-						if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] !=
-								0 &&
-							(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] <
-								 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .spTrainingMissions[missionId]
-									 .bestTime ||
-							 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .spTrainingMissions[missionId]
-									 .bestTime == 0)) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.spTrainingMissions[missionId]
-								.bestTime =
-								g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff];
-						}
-					}
-					oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								   .spTrainingMissions[missionId]
-								   .awardId;
-					if (award != 0) {
-						if (oldAward == 0 || award < oldAward) {
-							if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-														 .missionEvaluations[oldAward - 1] != 0) {
-								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									  .missionEvaluations[oldAward - 1];
-							}
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.spTrainingMissions[missionId]
-								.awardId = (int)award;
-							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[award - 1];
-						}
-					} else if (oldAward == FAILED_AWARD) {
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.spTrainingMissions[missionId]
-							.awardId = 0;
-						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.missionEvaluations[FAILED_AWARD - 1] != 0) {
-							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[FAILED_AWARD - 1];
-						}
-					}
-				}
-				break;
-			case MISSION_STAT_MELEE: {
-				unsigned int oldAward;
-				int missionId;
-
-				missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_MELEES];
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .spMeleeMissions[missionId]
-					  .numberTimesFlown;
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spMeleeMissions[missionId]
-						  .completedCount;
-				}
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 2 ||
-					g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spMeleeMissions[missionId]
-						  .failedCount;
-				}
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spMeleeMissions[missionId]
-						.bestScore < score) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spMeleeMissions[missionId]
-						.bestScore = score;
-				}
-				if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] != 0 &&
-					(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] <
-						 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							 .spMeleeMissions[missionId]
-							 .bestTime ||
-					 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							 .spMeleeMissions[missionId]
-							 .bestTime == 0)) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spMeleeMissions[missionId]
-						.bestTime =
-						g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff];
-				}
-				if (placement != 0 &&
-					(placement < (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .spMeleeMissions[missionId]
-									 .bestPlacement ||
-					 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							 .spMeleeMissions[missionId]
-							 .bestPlacement == 0)) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spMeleeMissions[missionId]
-						.bestPlacement = (int)placement;
-				}
-				if (placement == FIRST_PLACE &&
-					margin > g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								 .spMeleeMissions[missionId]
-								 .bestBonus &&
-					margin > 0) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spMeleeMissions[missionId]
-						.bestBonus = margin;
-				}
-				oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							   .spMeleeMissions[missionId]
-							   .awardId;
-				if (award != 0) {
-					if (oldAward == 0 || award < oldAward) {
-						if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-													 .meleePlaques[oldAward - 1] != 0) {
-							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .meleePlaques[oldAward - 1];
-						}
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 							.spMeleeMissions[missionId]
-							.awardId = (int)award;
-						++g_pilotData.factionStatistics[g_pilotData.currentFactionId].meleePlaques[award - 1];
-					}
-				} else if (oldAward == FAILED_AWARD) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spMeleeMissions[missionId]
-						.awardId = 0;
-					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.meleePlaques[FAILED_AWARD - 1] != 0) {
-						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .meleePlaques[FAILED_AWARD - 1];
-					}
-				}
-				break;
-			}
-			case MISSION_STAT_COMBAT: {
-				unsigned int oldAward;
-				int missionId;
-
-				missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_COMBAT_ENGAGEMENTS];
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .spCombatMissions[missionId]
-					  .numberTimesFlown;
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spCombatMissions[missionId]
-						  .completedCount;
-				}
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 2 ||
-					g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spCombatMissions[missionId]
-						  .failedCount;
-				}
-				if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
-					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.spCombatMissions[missionId]
 							.bestScore < score) {
 						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.spCombatMissions[missionId]
+							.spMeleeMissions[missionId]
 							.bestScore = score;
 					}
-					if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] != 0 &&
-						(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] <
-							 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								 .spCombatMissions[missionId]
+					if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+								[(uint16_t)g_players[g_localPlayer].playerIff] != 0 &&
+						(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+								 [(uint16_t)g_players[g_localPlayer].playerIff] <
+							 (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								 .spMeleeMissions[missionId]
 								 .bestTime ||
 						 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								 .spCombatMissions[missionId]
+								 .spMeleeMissions[missionId]
 								 .bestTime == 0)) {
 						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.spCombatMissions[missionId]
-							.bestTime =
-							g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff];
+							.spMeleeMissions[missionId]
+							.bestTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+											[(uint16_t)g_players[g_localPlayer].playerIff];
 					}
-				}
-				oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							   .spCombatMissions[missionId]
-							   .awardId;
-				if (award != 0) {
-					if (oldAward == 0 || award < oldAward) {
-						if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-													 .missionEvaluations[oldAward - 1] != 0) {
-							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[oldAward - 1];
-						}
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.spCombatMissions[missionId]
-							.awardId = (int)award;
-						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .missionEvaluations[award - 1];
-					}
-				} else if (oldAward == FAILED_AWARD) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spCombatMissions[missionId]
-						.awardId = 0;
-					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.missionEvaluations[FAILED_AWARD - 1] != 0) {
-						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .missionEvaluations[FAILED_AWARD - 1];
-					}
-				}
-				break;
-			}
-		}
-	} else {
-		switch (statType) {
-			case MISSION_STAT_TRAINING:
-				if (g_pilotData.missionSequenceActive == 1) {
-					unsigned int oldAward;
-					int missionId;
-
-					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_TRAINING_EXERCISES];
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpCampaignMissions[missionId - 1]
-						  .numberTimesFlown;
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpCampaignMissions[missionId - 1]
-						.campaignId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_CAMPAIGNS];
-					if (g_pilotData.teams[g_pilotData.team].isMissionCompleted != 0) {
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpCampaignMissions[missionId - 1]
-							.isCompleted = 1;
-					}
-					if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
-						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpCampaignMissions[missionId - 1]
-								.bestScore < score) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpCampaignMissions[missionId - 1]
-								.bestScore = score;
-						}
-						if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] !=
-								0 &&
-							(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] <
-								 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .mpCampaignMissions[missionId - 1]
-									 .bestTime ||
-							 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .mpCampaignMissions[missionId - 1]
-									 .bestTime == 0)) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpCampaignMissions[missionId - 1]
-								.bestTime =
-								g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff];
-						}
-						if (g_pilotData.teams[g_pilotData.team].isMissionCompleted != 0 &&
-							g_gameConfig.difficulty <= GAME_DIFFICULTY_HARD) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpCampaignMissions[missionId - 1]
-								.awardEligible = 1;
-						}
-					}
-					oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								   .mpCampaignMissions[missionId - 1]
-								   .awardId;
-					if (award != 0) {
-						if (oldAward == 0 || award < oldAward) {
-							if (oldAward == FAILED_AWARD &&
-								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-										.missionEvaluations[FAILED_AWARD - 1] != 0) {
-								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									  .missionEvaluations[FAILED_AWARD - 1];
-							}
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpCampaignMissions[missionId - 1]
-								.awardId = (int)award;
-						}
-						if (award != FAILED_AWARD ||
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									.mpCampaignMissions[missionId - 1]
-									.awardId == 0) {
-							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[award - 1];
-						}
-					} else if (oldAward == FAILED_AWARD) {
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpCampaignMissions[missionId - 1]
-							.awardId = 0;
-						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.missionEvaluations[FAILED_AWARD - 1] != 0) {
-							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[FAILED_AWARD - 1];
-						}
-					}
-				} else {
-					unsigned int oldAward;
-					int missionId;
-
-					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_TRAINING_EXERCISES];
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpTrainingMissions[missionId]
-						  .numberTimesFlown;
-					if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1) {
-						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .mpTrainingMissions[missionId]
-							  .completedCount;
-					}
-					if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 2 ||
-						g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] ==
-							1) {
-						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .mpTrainingMissions[missionId]
-							  .failedCount;
-					}
-					if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
-						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpTrainingMissions[missionId]
-								.bestScore < score) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpTrainingMissions[missionId]
-								.bestScore = score;
-						}
-						if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] !=
-								0 &&
-							(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] <
-								 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .mpTrainingMissions[missionId]
-									 .bestTime ||
-							 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .mpTrainingMissions[missionId]
-									 .bestTime == 0)) {
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpTrainingMissions[missionId]
-								.bestTime =
-								g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff];
-						}
-					}
-					oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								   .mpTrainingMissions[missionId]
-								   .awardId;
-					if (award != 0) {
-						if (oldAward == 0 || award < oldAward) {
-							if (oldAward == FAILED_AWARD &&
-								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-										.missionEvaluations[FAILED_AWARD - 1] != 0) {
-								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									  .missionEvaluations[FAILED_AWARD - 1];
-							}
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.mpTrainingMissions[missionId]
-								.awardId = (int)award;
-						}
-						if (award != FAILED_AWARD ||
-							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									.mpTrainingMissions[missionId]
-									.awardId == 0) {
-							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[award - 1];
-						}
-					} else if (oldAward == FAILED_AWARD) {
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpTrainingMissions[missionId]
-							.awardId = 0;
-						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.missionEvaluations[FAILED_AWARD - 1] != 0) {
-							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .missionEvaluations[FAILED_AWARD - 1];
-						}
-					}
-				}
-				break;
-			case MISSION_STAT_MELEE: {
-				unsigned int oldAward;
-				int missionId;
-
-				missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_MELEES];
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .mpMeleeMissions[missionId]
-					  .numberTimesFlown;
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpMeleeMissions[missionId]
-						  .completedCount;
-				}
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 2 ||
-					g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpMeleeMissions[missionId]
-						  .failedCount;
-				}
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpMeleeMissions[missionId]
-						.bestScore < score) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpMeleeMissions[missionId]
-						.bestScore = score;
-				}
-				if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] != 0 &&
-					(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] <
+					if (placement != 0 &&
+						((unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								 .spMeleeMissions[missionId]
+								 .bestPlacement > (unsigned int)placement ||
 						 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							 .mpMeleeMissions[missionId]
-							 .bestTime ||
-					 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							 .mpMeleeMissions[missionId]
-							 .bestTime == 0)) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpMeleeMissions[missionId]
-						.bestTime =
-						g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff];
-				}
-				if (placement == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpMeleeMissions[missionId]
-						  .firstPlaceCount;
-				} else if (placement == 2) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpMeleeMissions[missionId]
-						  .secondPlaceCount;
-				} else if (placement == 3) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpMeleeMissions[missionId]
-						  .thirdPlaceCount;
-				}
-				if (placement != 0 &&
-					(placement < (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									 .mpMeleeMissions[missionId]
-									 .bestPlacement ||
-					 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							 .mpMeleeMissions[missionId]
-							 .bestPlacement == 0)) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpMeleeMissions[missionId]
-						.bestPlacement = (int)placement;
-				}
-				if (placement == FIRST_PLACE &&
-					margin > g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								 .mpMeleeMissions[missionId]
-								 .bestBonus &&
-					margin > 0) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpMeleeMissions[missionId]
-						.bestBonus = margin;
-				}
-				oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							   .mpMeleeMissions[missionId]
-							   .awardId;
-				if (award != 0) {
-					if (oldAward == 0 || award < oldAward) {
-						if (oldAward == FAILED_AWARD &&
+								 .spMeleeMissions[missionId]
+								 .bestPlacement == 0)) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spMeleeMissions[missionId]
+							.bestPlacement = (int)placement;
+					}
+					if (placement == FIRST_PLACE &&
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.spMeleeMissions[missionId]
+								.bestBonus < (unsigned int)margin &&
+						margin > 0) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spMeleeMissions[missionId]
+							.bestBonus = margin;
+					}
+					if (award != 0) {
+						oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .spMeleeMissions[missionId]
+									   .awardId;
+						if (oldAward > (unsigned int)award || oldAward == 0) {
+							if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+														 .meleePlaques[oldAward - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .meleePlaques[oldAward - 1];
+							}
 							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									.meleePlaques[FAILED_AWARD - 1] != 0) {
+								.spMeleeMissions[missionId]
+								.awardId = (int)award;
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .meleePlaques[award - 1];
+						}
+					} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								   .spMeleeMissions[missionId]
+								   .awardId == FAILED_AWARD) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spMeleeMissions[missionId]
+							.awardId = 0;
+						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.meleePlaques[FAILED_AWARD - 1] != 0) {
 							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 								  .meleePlaques[FAILED_AWARD - 1];
 						}
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpMeleeMissions[missionId]
-							.awardId = (int)award;
 					}
-					if (award != FAILED_AWARD || g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-														 .mpMeleeMissions[missionId]
-														 .awardId == 0) {
-						++g_pilotData.factionStatistics[g_pilotData.currentFactionId].meleePlaques[award - 1];
-					}
-				} else if (oldAward == FAILED_AWARD) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpMeleeMissions[missionId]
-						.awardId = 0;
-					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.meleePlaques[FAILED_AWARD - 1] != 0) {
-						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .meleePlaques[FAILED_AWARD - 1];
-					}
+					break;
 				}
-				break;
-			}
-			case MISSION_STAT_COMBAT: {
-				unsigned int oldAward;
-				int missionId;
+				case MISSION_STAT_COMBAT: {
+					unsigned int oldAward;
+					int missionId;
 
-				missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_COMBAT_ENGAGEMENTS];
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .mpCombatMissions[missionId]
-					  .numberTimesFlown;
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 1) {
+					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_COMBAT_ENGAGEMENTS];
 					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpCombatMissions[missionId]
-						  .completedCount;
-				}
-				if (g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_PRIMARY] == 2 ||
-					g_flightMissionState.runtime.teamGoalStatus[localPlayerIff][TEAM_GOAL_SECONDARY] == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpCombatMissions[missionId]
-						  .failedCount;
-				}
-				if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
-					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpCombatMissions[missionId]
-							.bestScore < score) {
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpCombatMissions[missionId]
-							.bestScore = score;
+						  .spCombatMissions[missionId]
+						  .numberTimesFlown;
+					if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer]
+																		.playerIff][TEAM_GOAL_PRIMARY] == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spCombatMissions[missionId]
+							  .completedCount;
 					}
-					if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] != 0 &&
-						(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff] <
-							 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								 .mpCombatMissions[missionId]
-								 .bestTime ||
-						 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								 .mpCombatMissions[missionId]
-								 .bestTime == 0)) {
-						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpCombatMissions[missionId]
-							.bestTime =
-							g_flightMissionState.runtime.teamMissionCompletionTimeSeconds[localPlayerIff];
+					if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer]
+																		.playerIff][TEAM_GOAL_PRIMARY] == 2 ||
+						g_flightMissionState.runtime
+								.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+											   [TEAM_GOAL_SECONDARY] == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spCombatMissions[missionId]
+							  .failedCount;
 					}
-				}
-				oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							   .mpCombatMissions[missionId]
-							   .awardId;
-				if (award != 0) {
-					if (oldAward == 0 || award < oldAward) {
-						if (oldAward == FAILED_AWARD &&
+					if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
+						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.spCombatMissions[missionId]
+								.bestScore < score) {
 							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									.missionEvaluations[FAILED_AWARD - 1] != 0) {
+								.spCombatMissions[missionId]
+								.bestScore = score;
+						}
+						if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+									[(uint16_t)g_players[g_localPlayer].playerIff] != 0 &&
+							(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+									 [(uint16_t)g_players[g_localPlayer].playerIff] <
+								 (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									 .spCombatMissions[missionId]
+									 .bestTime ||
+							 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									 .spCombatMissions[missionId]
+									 .bestTime == 0)) {
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.spCombatMissions[missionId]
+								.bestTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+												[(uint16_t)g_players[g_localPlayer].playerIff];
+						}
+					}
+					if (award != 0) {
+						oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .spCombatMissions[missionId]
+									   .awardId;
+						if (oldAward > (unsigned int)award || oldAward == 0) {
+							if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+														 .missionEvaluations[oldAward - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[oldAward - 1];
+							}
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.spCombatMissions[missionId]
+								.awardId = (int)award;
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .missionEvaluations[award - 1];
+						}
+					} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								   .spCombatMissions[missionId]
+								   .awardId == FAILED_AWARD) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spCombatMissions[missionId]
+							.awardId = 0;
+						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.missionEvaluations[FAILED_AWARD - 1] != 0) {
 							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 								  .missionEvaluations[FAILED_AWARD - 1];
 						}
+					}
+					break;
+				}
+			}
+		} else {
+			switch (statType) {
+				case MISSION_STAT_TRAINING: {
+					unsigned int oldAward;
+					int missionId;
+
+					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_TRAINING_EXERCISES];
+					if (g_pilotData.missionSequenceActive == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpCampaignMissions[missionId - 1]
+							  .numberTimesFlown;
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpCampaignMissions[missionId - 1]
+							.campaignId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_CAMPAIGNS];
+						if (g_pilotData.teams[g_pilotData.team].isMissionCompleted != 0) {
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpCampaignMissions[missionId - 1]
+								.isCompleted = 1;
+						}
+						if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
+							if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpCampaignMissions[missionId - 1]
+									.bestScore < (unsigned int)score) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpCampaignMissions[missionId - 1]
+									.bestScore = score;
+							}
+							if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+										[(uint16_t)g_players[g_localPlayer].playerIff] != 0 &&
+								(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+										 [(uint16_t)g_players[g_localPlayer].playerIff] <
+									 (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										 .mpCampaignMissions[missionId - 1]
+										 .bestTime ||
+								 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										 .mpCampaignMissions[missionId - 1]
+										 .bestTime == 0)) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpCampaignMissions[missionId - 1]
+									.bestTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+													[(uint16_t)g_players[g_localPlayer].playerIff];
+							}
+							if (g_pilotData.teams[g_pilotData.team].isMissionCompleted != 0 &&
+								g_gameConfig.difficulty <= GAME_DIFFICULTY_HARD) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpCampaignMissions[missionId - 1]
+									.awardEligible = 1;
+							}
+						}
+						if (award != 0) {
+							oldAward =
+								(unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpCampaignMissions[missionId - 1]
+									.awardId;
+							if (oldAward > (unsigned int)award || oldAward == 0) {
+								if (oldAward == FAILED_AWARD &&
+									g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+											.missionEvaluations[FAILED_AWARD - 1] != 0) {
+									--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										  .missionEvaluations[FAILED_AWARD - 1];
+								}
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpCampaignMissions[missionId - 1]
+									.awardId = (int)award;
+							}
+							if (award != FAILED_AWARD ||
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										.mpCampaignMissions[missionId - 1]
+										.awardId == 0) {
+								++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[award - 1];
+							}
+						} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .mpCampaignMissions[missionId - 1]
+									   .awardId == FAILED_AWARD) {
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpCampaignMissions[missionId - 1]
+								.awardId = 0;
+							if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.missionEvaluations[FAILED_AWARD - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[FAILED_AWARD - 1];
+							}
+						}
+					} else {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpTrainingMissions[missionId]
+							  .numberTimesFlown;
+						if (g_flightMissionState.runtime
+								.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+											   [TEAM_GOAL_PRIMARY] == 1) {
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .mpTrainingMissions[missionId]
+								  .completedCount;
+						}
+						if (g_flightMissionState.runtime
+									.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+												   [TEAM_GOAL_PRIMARY] == 2 ||
+							g_flightMissionState.runtime
+									.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+												   [TEAM_GOAL_SECONDARY] == 1) {
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .mpTrainingMissions[missionId]
+								  .failedCount;
+						}
+						if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
+							if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpTrainingMissions[missionId]
+									.bestScore < score) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpTrainingMissions[missionId]
+									.bestScore = score;
+							}
+							if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+										[(uint16_t)g_players[g_localPlayer].playerIff] != 0 &&
+								(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+										 [(uint16_t)g_players[g_localPlayer].playerIff] <
+									 (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										 .mpTrainingMissions[missionId]
+										 .bestTime ||
+								 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										 .mpTrainingMissions[missionId]
+										 .bestTime == 0)) {
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpTrainingMissions[missionId]
+									.bestTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+													[(uint16_t)g_players[g_localPlayer].playerIff];
+							}
+						}
+						if (award != 0) {
+							oldAward =
+								(unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpTrainingMissions[missionId]
+									.awardId;
+							if (oldAward > (unsigned int)award || oldAward == 0) {
+								if (oldAward == FAILED_AWARD &&
+									g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+											.missionEvaluations[FAILED_AWARD - 1] != 0) {
+									--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										  .missionEvaluations[FAILED_AWARD - 1];
+								}
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpTrainingMissions[missionId]
+									.awardId = (int)award;
+							}
+							if (award != FAILED_AWARD ||
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										.mpTrainingMissions[missionId]
+										.awardId == 0) {
+								++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[award - 1];
+							}
+						} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .mpTrainingMissions[missionId]
+									   .awardId == FAILED_AWARD) {
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpTrainingMissions[missionId]
+								.awardId = 0;
+							if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.missionEvaluations[FAILED_AWARD - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[FAILED_AWARD - 1];
+							}
+						}
+					}
+					break;
+				}
+				case MISSION_STAT_MELEE: {
+					unsigned int oldAward;
+					int missionId;
+
+					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_MELEES];
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .mpMeleeMissions[missionId]
+						  .numberTimesFlown;
+					if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer]
+																		.playerIff][TEAM_GOAL_PRIMARY] == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpMeleeMissions[missionId]
+							  .completedCount;
+					}
+					if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer]
+																		.playerIff][TEAM_GOAL_PRIMARY] == 2 ||
+						g_flightMissionState.runtime
+								.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+											   [TEAM_GOAL_SECONDARY] == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpMeleeMissions[missionId]
+							  .failedCount;
+					}
+					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpMeleeMissions[missionId]
+							.bestScore < score) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpMeleeMissions[missionId]
+							.bestScore = score;
+					}
+					if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+								[(uint16_t)g_players[g_localPlayer].playerIff] != 0 &&
+						(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+								 [(uint16_t)g_players[g_localPlayer].playerIff] <
+							 (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								 .mpMeleeMissions[missionId]
+								 .bestTime ||
+						 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								 .mpMeleeMissions[missionId]
+								 .bestTime == 0)) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpMeleeMissions[missionId]
+							.bestTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+											[(uint16_t)g_players[g_localPlayer].playerIff];
+					}
+					if (placement == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpMeleeMissions[missionId]
+							  .firstPlaceCount;
+					} else if (placement == 2) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpMeleeMissions[missionId]
+							  .secondPlaceCount;
+					} else if (placement == 3) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpMeleeMissions[missionId]
+							  .thirdPlaceCount;
+					}
+					if (placement != 0 &&
+						((unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								 .mpMeleeMissions[missionId]
+								 .bestPlacement > (unsigned int)placement ||
+						 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								 .mpMeleeMissions[missionId]
+								 .bestPlacement == 0)) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpMeleeMissions[missionId]
+							.bestPlacement = (int)placement;
+					}
+					if (placement == FIRST_PLACE &&
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpMeleeMissions[missionId]
+								.bestBonus < (unsigned int)margin &&
+						margin > 0) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpMeleeMissions[missionId]
+							.bestBonus = margin;
+					}
+					if (award != 0) {
+						oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .mpMeleeMissions[missionId]
+									   .awardId;
+						if (oldAward > (unsigned int)award || oldAward == 0) {
+							if (oldAward == FAILED_AWARD &&
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										.meleePlaques[FAILED_AWARD - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .meleePlaques[FAILED_AWARD - 1];
+							}
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpMeleeMissions[missionId]
+								.awardId = (int)award;
+						}
+						if (award != FAILED_AWARD ||
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpMeleeMissions[missionId]
+									.awardId == 0) {
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .meleePlaques[award - 1];
+						}
+					} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								   .mpMeleeMissions[missionId]
+								   .awardId == FAILED_AWARD) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpMeleeMissions[missionId]
+							.awardId = 0;
+						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.meleePlaques[FAILED_AWARD - 1] != 0) {
+							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .meleePlaques[FAILED_AWARD - 1];
+						}
+					}
+					break;
+				}
+				case MISSION_STAT_COMBAT: {
+					unsigned int oldAward;
+					int missionId;
+
+					missionId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_COMBAT_ENGAGEMENTS];
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .mpCombatMissions[missionId]
+						  .numberTimesFlown;
+					if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer]
+																		.playerIff][TEAM_GOAL_PRIMARY] == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpCombatMissions[missionId]
+							  .completedCount;
+					}
+					if (g_flightMissionState.runtime.teamGoalStatus[(uint16_t)g_players[g_localPlayer]
+																		.playerIff][TEAM_GOAL_PRIMARY] == 2 ||
+						g_flightMissionState.runtime
+								.teamGoalStatus[(uint16_t)g_players[g_localPlayer].playerIff]
+											   [TEAM_GOAL_SECONDARY] == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpCombatMissions[missionId]
+							  .failedCount;
+					}
+					if (g_flightMissionState.playerFlightGroupWaveMode != CRAFT_WAVES_UNLIMITED) {
+						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpCombatMissions[missionId]
+								.bestScore < score) {
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpCombatMissions[missionId]
+								.bestScore = score;
+						}
+						if (g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+									[(uint16_t)g_players[g_localPlayer].playerIff] != 0 &&
+							(g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+									 [(uint16_t)g_players[g_localPlayer].playerIff] <
+								 (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									 .mpCombatMissions[missionId]
+									 .bestTime ||
+							 g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									 .mpCombatMissions[missionId]
+									 .bestTime == 0)) {
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpCombatMissions[missionId]
+								.bestTime = g_flightMissionState.runtime.teamMissionCompletionTimeSeconds
+												[(uint16_t)g_players[g_localPlayer].playerIff];
+						}
+					}
+					if (award != 0) {
+						oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .mpCombatMissions[missionId]
+									   .awardId;
+						if (oldAward > (unsigned int)award || oldAward == 0) {
+							if (oldAward == FAILED_AWARD &&
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										.missionEvaluations[FAILED_AWARD - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .missionEvaluations[FAILED_AWARD - 1];
+							}
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpCombatMissions[missionId]
+								.awardId = (int)award;
+						}
+						if (award != FAILED_AWARD ||
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.mpCombatMissions[missionId]
+									.awardId == 0) {
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .missionEvaluations[award - 1];
+						}
+					} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								   .mpCombatMissions[missionId]
+								   .awardId == FAILED_AWARD) {
 						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 							.mpCombatMissions[missionId]
-							.awardId = (int)award;
+							.awardId = 0;
+						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.missionEvaluations[FAILED_AWARD - 1] != 0) {
+							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .missionEvaluations[FAILED_AWARD - 1];
+						}
 					}
-					if (award != FAILED_AWARD || g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-														 .mpCombatMissions[missionId]
-														 .awardId == 0) {
-						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .missionEvaluations[award - 1];
+					break;
+				}
+			}
+		}
+
+		if (g_pilotData.missionSequenceActive == 1 && statType == MISSION_STAT_TRAINING) {
+			int campaignId;
+
+			campaignId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_CAMPAIGNS];
+			g_pilotData.campaignSequenceState.lastMissionCompleted =
+				g_pilotData.teams[g_pilotData.team].isMissionCompleted;
+			if (g_pilotData.campaignSequenceState.lastMissionCompleted != 0) {
+				if (g_pilotData.campaignSequenceState.currentMissionIndex == 0) {
+					g_pilotData.campaignSequenceState.cumulativeScore = g_pilotData.missionScore;
+				} else {
+					g_pilotData.campaignSequenceState.cumulativeScore += g_pilotData.missionScore;
+				}
+			}
+			if (g_pilotData.campaignSequenceState.humanPlayerCount < 2) {
+				if (g_pilotData.campaignSequenceState.currentMissionIndex == 0) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .spCampaigns[campaignId]
+						  .attemptCount;
+				}
+				if (g_pilotData.campaignSequenceState.lastMissionCompleted != 0) {
+					if ((unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spCampaigns[campaignId]
+							.nextMissionIndex <
+						(unsigned int)(g_pilotData.campaignSequenceState.currentMissionIndex + 1)) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spCampaigns[campaignId]
+							.nextMissionIndex = g_pilotData.campaignSequenceState.currentMissionIndex + 1;
 					}
-				} else if (oldAward == FAILED_AWARD) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpCombatMissions[missionId]
-						.awardId = 0;
 					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.missionEvaluations[FAILED_AWARD - 1] != 0) {
-						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .missionEvaluations[FAILED_AWARD - 1];
+							.spCampaigns[campaignId]
+							.bestScore < g_pilotData.campaignSequenceState.cumulativeScore) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spCampaigns[campaignId]
+							.bestScore = g_pilotData.campaignSequenceState.cumulativeScore;
 					}
+					if (g_pilotData.campaignSequenceState.missionCount ==
+						g_pilotData.campaignSequenceState.currentMissionIndex) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spCampaigns[campaignId]
+							.isFinished = 1;
+					}
+				} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							   .spCampaigns[campaignId]
+							   .bestScore <
+						   g_pilotData.campaignSequenceState.cumulativeScore + g_pilotData.missionScore) {
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						.spCampaigns[campaignId]
+						.bestScore =
+						g_pilotData.campaignSequenceState.cumulativeScore + g_pilotData.missionScore;
 				}
-				break;
-			}
-		}
-	}
-
-	if (g_pilotData.missionSequenceActive == 1 && statType == MISSION_STAT_TRAINING) {
-		int campaignId;
-
-		campaignId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_CAMPAIGNS];
-		g_pilotData.campaignSequenceState.lastMissionCompleted =
-			g_pilotData.teams[g_pilotData.team].isMissionCompleted;
-		if (g_pilotData.campaignSequenceState.lastMissionCompleted != 0) {
-			if (g_pilotData.campaignSequenceState.currentMissionIndex == 0) {
-				g_pilotData.campaignSequenceState.cumulativeScore = g_pilotData.missionScore;
 			} else {
-				g_pilotData.campaignSequenceState.cumulativeScore += g_pilotData.missionScore;
+				if (g_pilotData.campaignSequenceState.currentMissionIndex == 0) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .mpCampaigns[campaignId]
+						  .attemptCount;
+				}
+				if (g_pilotData.campaignSequenceState.lastMissionCompleted != 0) {
+					if ((unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpCampaigns[campaignId]
+							.nextMissionIndex <
+						(unsigned int)(g_pilotData.campaignSequenceState.currentMissionIndex + 1)) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpCampaigns[campaignId]
+							.nextMissionIndex = g_pilotData.campaignSequenceState.currentMissionIndex + 1;
+					}
+					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpCampaigns[campaignId]
+							.bestScore < g_pilotData.campaignSequenceState.cumulativeScore) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpCampaigns[campaignId]
+							.bestScore = g_pilotData.campaignSequenceState.cumulativeScore;
+					}
+					if (g_pilotData.campaignSequenceState.missionCount ==
+						g_pilotData.campaignSequenceState.currentMissionIndex) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpCampaigns[campaignId]
+							.isFinished = 1;
+					}
+				} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							   .mpCampaigns[campaignId]
+							   .bestScore <
+						   g_pilotData.campaignSequenceState.cumulativeScore + g_pilotData.missionScore) {
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						.mpCampaigns[campaignId]
+						.bestScore =
+						g_pilotData.campaignSequenceState.cumulativeScore + g_pilotData.missionScore;
+				}
 			}
 		}
-		if (g_pilotData.campaignSequenceState.humanPlayerCount < 2) {
-			if (g_pilotData.campaignSequenceState.currentMissionIndex == 0) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .spCampaigns[campaignId]
-					  .attemptCount;
-			}
-			if (g_pilotData.campaignSequenceState.lastMissionCompleted != 0) {
-				if ((unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spCampaigns[campaignId]
-						.nextMissionIndex <
-					(unsigned int)(g_pilotData.campaignSequenceState.currentMissionIndex + 1)) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spCampaigns[campaignId]
-						.nextMissionIndex = g_pilotData.campaignSequenceState.currentMissionIndex + 1;
-				}
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spCampaigns[campaignId]
-						.bestScore < g_pilotData.campaignSequenceState.cumulativeScore) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spCampaigns[campaignId]
-						.bestScore = g_pilotData.campaignSequenceState.cumulativeScore;
-				}
-				if (g_pilotData.campaignSequenceState.missionCount ==
-					g_pilotData.campaignSequenceState.currentMissionIndex) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spCampaigns[campaignId]
-						.isFinished = 1;
-				}
-			} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						   .spCampaigns[campaignId]
-						   .bestScore <
-					   g_pilotData.campaignSequenceState.cumulativeScore + g_pilotData.missionScore) {
-				g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					.spCampaigns[campaignId]
-					.bestScore = g_pilotData.campaignSequenceState.cumulativeScore + g_pilotData.missionScore;
-			}
-		} else {
-			if (g_pilotData.campaignSequenceState.currentMissionIndex == 0) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .mpCampaigns[campaignId]
-					  .attemptCount;
-			}
-			if (g_pilotData.campaignSequenceState.lastMissionCompleted != 0) {
-				if ((unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpCampaigns[campaignId]
-						.nextMissionIndex <
-					(unsigned int)(g_pilotData.campaignSequenceState.currentMissionIndex + 1)) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpCampaigns[campaignId]
-						.nextMissionIndex = g_pilotData.campaignSequenceState.currentMissionIndex + 1;
-				}
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpCampaigns[campaignId]
-						.bestScore < g_pilotData.campaignSequenceState.cumulativeScore) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpCampaigns[campaignId]
-						.bestScore = g_pilotData.campaignSequenceState.cumulativeScore;
-				}
-				if (g_pilotData.campaignSequenceState.missionCount ==
-					g_pilotData.campaignSequenceState.currentMissionIndex) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpCampaigns[campaignId]
-						.isFinished = 1;
-				}
-			} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						   .mpCampaigns[campaignId]
-						   .bestScore <
-					   g_pilotData.campaignSequenceState.cumulativeScore + g_pilotData.missionScore) {
-				g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					.mpCampaigns[campaignId]
-					.bestScore = g_pilotData.campaignSequenceState.cumulativeScore + g_pilotData.missionScore;
-			}
-		}
-	}
 
-	if (g_pilotData.missionSequenceActive == 1 && statType == MISSION_STAT_MELEE) {
-		MeleeTournamentSequenceState* tournamentState;
-		unsigned int overallPlacement;
-		unsigned int tournamentAward;
-		unsigned int betterTeamCount;
-		int tournamentId;
-		int overallMargin;
-		int localTeamTotalScore;
-
-		tournamentState = &g_pilotData.meleeTournamentSequenceState;
-		for (teamIdx = 0; teamIdx < TEAM_COUNT; ++teamIdx) {
-			MeleeTournamentTeamStandings* standings;
-			unsigned int missionPlacement;
-			unsigned int betterMissionTeamCount;
+		if (g_pilotData.missionSequenceActive == 1 && statType == MISSION_STAT_MELEE) {
+			int overallPlacement;
+			int tournamentAward;
+			int betterTeamCount;
+			int tournamentId;
+			int overallMargin;
+			int localTeamTotalScore;
+			unsigned int participatingTeamCount;
 			int teamMissionScore;
 
-			standings = &tournamentState->teamStandings[teamIdx];
-			if (standings->aiOpponentSourceTeamAndTypeFlag == -1) {
-				missionPlacement = 0;
-				teamMissionScore = 0;
-			} else {
-				teamMissionScore = g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][teamIdx] +
-								   g_flightMissionState.runtime.teamScores[TEAM_SCORE_MISSION][teamIdx];
-				betterMissionTeamCount = 0;
-				for (networkIdx = 0; networkIdx < TEAM_COUNT; ++networkIdx) {
-					if (networkIdx != teamIdx &&
-						tournamentState->teamStandings[networkIdx].aiOpponentSourceTeamAndTypeFlag != -1 &&
-						g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][networkIdx] +
-								g_flightMissionState.runtime.teamScores[TEAM_SCORE_MISSION][networkIdx] >
-							teamMissionScore) {
-						++betterMissionTeamCount;
+			tournamentId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_TOURNAMENTS];
+			participatingTeamCount = g_pilotData.meleeTournamentSequenceState.participatingTeamCount;
+#ifdef XVT_MODERN
+			/* Inactive standings keep the previous team's score; the first one would read an uninitialized
+			 * local. */
+			teamMissionScore = 0;
+#endif
+			for (teamIdx = 0; teamIdx < TEAM_COUNT; ++teamIdx) {
+				unsigned int missionPlacement;
+				unsigned int betterMissionTeamCount;
+
+				if (g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx]
+						.aiOpponentSourceTeamAndTypeFlag != -1) {
+					teamMissionScore =
+						g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][teamIdx] +
+						g_flightMissionState.runtime.teamScores[TEAM_SCORE_MISSION][teamIdx];
+					betterMissionTeamCount = 0;
+					for (networkIdx = 0; networkIdx < TEAM_COUNT; ++networkIdx) {
+						if (networkIdx != teamIdx &&
+							g_pilotData.meleeTournamentSequenceState.teamStandings[networkIdx]
+									.aiOpponentSourceTeamAndTypeFlag != -1 &&
+							g_flightMissionState.runtime.teamScores[TEAM_SCORE_BONUS_TENTHS][networkIdx] +
+									g_flightMissionState.runtime.teamScores[TEAM_SCORE_MISSION][networkIdx] >
+								teamMissionScore) {
+							++betterMissionTeamCount;
+						}
+					}
+					missionPlacement = betterMissionTeamCount + 1;
+				} else {
+					missionPlacement = 0;
+				}
+				g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx].totalScore +=
+					teamMissionScore;
+				if (missionPlacement == 1) {
+					++g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx].firstPlaceCount;
+				} else if (missionPlacement == 2) {
+					++g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx].secondPlaceCount;
+				} else if (missionPlacement == 3) {
+					++g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx].thirdPlaceCount;
+				}
+			}
+
+			betterTeamCount = 0;
+			overallMargin = 0;
+			localTeamTotalScore = g_pilotData.meleeTournamentSequenceState
+									  .teamStandings[(uint16_t)g_players[g_localPlayer].playerIff]
+									  .totalScore;
+			for (teamIdx = 0; teamIdx < TEAM_COUNT; ++teamIdx) {
+				if (teamIdx != (uint16_t)g_players[g_localPlayer].playerIff &&
+					g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx]
+							.aiOpponentSourceTeamAndTypeFlag != -1) {
+					if (localTeamTotalScore <
+						g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx].totalScore) {
+						++betterTeamCount;
+					} else if (localTeamTotalScore -
+									   g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx]
+										   .totalScore <
+								   overallMargin ||
+							   overallMargin == 0) {
+						overallMargin =
+							localTeamTotalScore -
+							g_pilotData.meleeTournamentSequenceState.teamStandings[teamIdx].totalScore;
 					}
 				}
-				missionPlacement = betterMissionTeamCount + 1;
 			}
-			standings->totalScore += teamMissionScore;
-			if (missionPlacement == 1) {
-				++standings->firstPlaceCount;
-			} else if (missionPlacement == 2) {
-				++standings->secondPlaceCount;
-			} else if (missionPlacement == 3) {
-				++standings->thirdPlaceCount;
-			}
-		}
-
-		localTeamTotalScore = tournamentState->teamStandings[localPlayerIff].totalScore;
-		betterTeamCount = 0;
-		overallMargin = 0;
-		for (teamIdx = 0; teamIdx < TEAM_COUNT; ++teamIdx) {
-			int opponentScore;
-
-			if (teamIdx == (unsigned int)localPlayerIff ||
-				tournamentState->teamStandings[teamIdx].aiOpponentSourceTeamAndTypeFlag == -1) {
-				continue;
-			}
-			opponentScore = tournamentState->teamStandings[teamIdx].totalScore;
-			if (opponentScore > localTeamTotalScore) {
-				++betterTeamCount;
-			} else if (overallMargin == 0 || localTeamTotalScore - opponentScore < overallMargin) {
-				overallMargin = localTeamTotalScore - opponentScore;
-			}
-		}
-		overallPlacement = betterTeamCount + 1;
-		tournamentAward = 0;
-		if (localTeamTotalScore > 5000 && overallPlacement < 4) {
-			tournamentAward =
-				g_placementAwardLevels[3 * tournamentState->participatingTeamCount - 4 + overallPlacement];
-		}
-		if (tournamentAward == 0 && tournamentState->participatingTeamCount >= 4 &&
-			overallPlacement == (unsigned int)tournamentState->participatingTeamCount) {
-			tournamentAward = FAILED_AWARD;
-		}
-		if (tournamentAward != 0 && tournamentAward != FAILED_AWARD) {
-			if (tournamentState->humanPlayerCount >= 3) {
-				if (tournamentState->humanPlayerCount < 5 &&
-					g_flightMissionState.difficulty != GAME_DIFFICULTY_HARD) {
-					++tournamentAward;
-				}
-			} else if (g_flightMissionState.difficulty == GAME_DIFFICULTY_HARD) {
-				++tournamentAward;
-			} else {
-				tournamentAward += 2;
-			}
-			if (tournamentAward > MAX_STORED_AWARD) {
-				tournamentAward = MAX_STORED_AWARD;
-			}
-			if (overallPlacement == FIRST_PLACE) {
-				if (overallMargin > 20000) {
-					tournamentAward -= 2;
-				} else if (overallMargin > 10000) {
-					--tournamentAward;
-				}
-				if (tournamentAward < 1) {
-					tournamentAward = 1;
-				}
-			}
-		}
-
-		tournamentId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_TOURNAMENTS];
-		if (tournamentState->humanPlayerCount == 1) {
-			unsigned int oldAward;
-
-			if (tournamentState->currentMissionIndex == 0) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .spTournaments[tournamentId]
-					  .attemptCount;
-			} else if (tournamentState->missionCount - tournamentState->currentMissionIndex == 1) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .spTournaments[tournamentId]
-					  .completedCount;
-				if (overallPlacement == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spTournaments[tournamentId]
-						  .firstPlaceCount;
-				} else if (overallPlacement == 2) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spTournaments[tournamentId]
-						  .secondPlaceCount;
-				} else if (overallPlacement == 3) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spTournaments[tournamentId]
-						  .thirdPlaceCount;
-				}
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spTournaments[tournamentId]
-						.bestScore < localTeamTotalScore) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spTournaments[tournamentId]
-						.bestScore = localTeamTotalScore;
-				}
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.spTournaments[tournamentId]
-							.bestPlacement == 0 ||
-					overallPlacement <
-						(unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.spTournaments[tournamentId]
-							.bestPlacement) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spTournaments[tournamentId]
-						.bestPlacement = (int)overallPlacement;
-				}
-				if (overallPlacement == FIRST_PLACE &&
-					overallMargin > g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-										.spTournaments[tournamentId]
-										.bestMargin &&
-					overallMargin > 0) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spTournaments[tournamentId]
-						.bestMargin = overallMargin;
-				}
-				oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							   .spTournaments[tournamentId]
-							   .awardId;
+			overallPlacement = betterTeamCount + 1;
+			tournamentAward = 0;
+			if (localTeamTotalScore > 5000 && overallPlacement < 4) {
+				tournamentAward = g_placementAwardLevels[3 * participatingTeamCount - 4 + overallPlacement];
 				if (tournamentAward != 0) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[1] =
-						(int)tournamentAward;
-					if (oldAward == 0 || tournamentAward < oldAward) {
-						if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-													 .tournamentTrophies[oldAward - 1] != 0) {
-							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								  .tournamentTrophies[oldAward - 1];
+					if (g_pilotData.meleeTournamentSequenceState.humanPlayerCount < 3) {
+						if (g_flightMissionState.difficulty != GAME_DIFFICULTY_HARD) {
+							tournamentAward += 2;
+						} else {
+							++tournamentAward;
 						}
+						if (tournamentAward > MAX_STORED_AWARD) {
+							tournamentAward = MAX_STORED_AWARD;
+						}
+					} else if (g_pilotData.meleeTournamentSequenceState.humanPlayerCount < 5) {
+						if (g_flightMissionState.difficulty != GAME_DIFFICULTY_HARD) {
+							++tournamentAward;
+						}
+						if (tournamentAward > MAX_STORED_AWARD) {
+							tournamentAward = MAX_STORED_AWARD;
+						}
+					}
+					if (overallPlacement == FIRST_PLACE) {
+						if (overallMargin > 20000) {
+							tournamentAward -= 2;
+						} else if (overallMargin > 10000) {
+							--tournamentAward;
+						}
+						if (tournamentAward < 1) {
+							tournamentAward = 1;
+						}
+					}
+				}
+			}
+			if (tournamentAward == 0 && participatingTeamCount >= 4 &&
+				participatingTeamCount == (unsigned int)overallPlacement) {
+				tournamentAward = FAILED_AWARD;
+			}
+
+			if (g_pilotData.meleeTournamentSequenceState.humanPlayerCount == 1) {
+				unsigned int oldAward;
+
+				if (g_pilotData.meleeTournamentSequenceState.currentMissionIndex == 0) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .spTournaments[tournamentId]
+						  .attemptCount;
+				} else if (g_pilotData.meleeTournamentSequenceState.missionCount -
+							   g_pilotData.meleeTournamentSequenceState.currentMissionIndex ==
+						   1) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .spTournaments[tournamentId]
+						  .completedCount;
+					if (overallPlacement == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spTournaments[tournamentId]
+							  .firstPlaceCount;
+					} else if (overallPlacement == 2) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spTournaments[tournamentId]
+							  .secondPlaceCount;
+					} else if (overallPlacement == 3) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spTournaments[tournamentId]
+							  .thirdPlaceCount;
+					}
+					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spTournaments[tournamentId]
+							.bestScore < localTeamTotalScore) {
 						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 							.spTournaments[tournamentId]
-							.awardId = (int)tournamentAward;
-						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .tournamentTrophies[tournamentAward - 1];
+							.bestScore = localTeamTotalScore;
 					}
-				} else if (oldAward == FAILED_AWARD) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.spTournaments[tournamentId]
-						.awardId = 0;
-					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.tournamentTrophies[FAILED_AWARD - 1] != 0) {
-						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .tournamentTrophies[FAILED_AWARD - 1];
+					if ((unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.spTournaments[tournamentId]
+								.bestPlacement > (unsigned int)overallPlacement ||
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.spTournaments[tournamentId]
+								.bestPlacement == 0) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spTournaments[tournamentId]
+							.bestPlacement = (int)overallPlacement;
 					}
-				}
-			}
-		} else {
-			unsigned int oldAward;
-
-			if (tournamentState->currentMissionIndex == 0) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .mpTournaments[tournamentId]
-					  .attemptCount;
-			} else if (tournamentState->missionCount - tournamentState->currentMissionIndex == 1) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .mpTournaments[tournamentId]
-					  .completedCount;
-				if (overallPlacement == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpTournaments[tournamentId]
-						  .firstPlaceCount;
-				} else if (overallPlacement == 2) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpTournaments[tournamentId]
-						  .secondPlaceCount;
-				} else if (overallPlacement == 3) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpTournaments[tournamentId]
-						  .thirdPlaceCount;
-				}
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpTournaments[tournamentId]
-						.bestScore < localTeamTotalScore) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpTournaments[tournamentId]
-						.bestScore = localTeamTotalScore;
-				}
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpTournaments[tournamentId]
-							.bestPlacement == 0 ||
-					overallPlacement <
-						(unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.mpTournaments[tournamentId]
-							.bestPlacement) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpTournaments[tournamentId]
-						.bestPlacement = (int)overallPlacement;
-				}
-				if (overallPlacement == FIRST_PLACE &&
-					overallMargin > g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-										.mpTournaments[tournamentId]
-										.bestMargin &&
-					overallMargin > 0) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpTournaments[tournamentId]
-						.bestMargin = overallMargin;
-				}
-				oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							   .mpTournaments[tournamentId]
-							   .awardId;
-				if (tournamentAward != 0) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[1] =
-						(int)tournamentAward;
-					if (oldAward == 0 || tournamentAward < oldAward) {
-						if (oldAward == FAILED_AWARD &&
+					if (overallPlacement == FIRST_PLACE &&
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.spTournaments[tournamentId]
+								.bestMargin < (unsigned int)overallMargin &&
+						overallMargin > 0) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spTournaments[tournamentId]
+							.bestMargin = overallMargin;
+					}
+					if (tournamentAward != 0) {
+						oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .spTournaments[tournamentId]
+									   .awardId;
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[1] =
+							(int)tournamentAward;
+						if (oldAward > (unsigned int)tournamentAward || oldAward == 0) {
+							if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+														 .tournamentTrophies[oldAward - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .tournamentTrophies[oldAward - 1];
+							}
 							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-									.tournamentTrophies[FAILED_AWARD - 1] != 0) {
+								.spTournaments[tournamentId]
+								.awardId = (int)tournamentAward;
+							++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .tournamentTrophies[tournamentAward - 1];
+						}
+					} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								   .spTournaments[tournamentId]
+								   .awardId == FAILED_AWARD) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spTournaments[tournamentId]
+							.awardId = 0;
+						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.tournamentTrophies[FAILED_AWARD - 1] != 0) {
 							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 								  .tournamentTrophies[FAILED_AWARD - 1];
 						}
+					}
+				}
+			} else {
+				unsigned int oldAward;
+
+				if (g_pilotData.meleeTournamentSequenceState.currentMissionIndex == 0) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .mpTournaments[tournamentId]
+						  .attemptCount;
+				} else if (g_pilotData.meleeTournamentSequenceState.missionCount -
+							   g_pilotData.meleeTournamentSequenceState.currentMissionIndex ==
+						   1) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .mpTournaments[tournamentId]
+						  .completedCount;
+					if (overallPlacement == 1) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpTournaments[tournamentId]
+							  .firstPlaceCount;
+					} else if (overallPlacement == 2) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpTournaments[tournamentId]
+							  .secondPlaceCount;
+					} else if (overallPlacement == 3) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpTournaments[tournamentId]
+							  .thirdPlaceCount;
+					}
+					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpTournaments[tournamentId]
+							.bestScore < localTeamTotalScore) {
 						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 							.mpTournaments[tournamentId]
-							.awardId = (int)tournamentAward;
+							.bestScore = localTeamTotalScore;
 					}
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .tournamentTrophies[tournamentAward - 1];
-				} else if (oldAward == FAILED_AWARD) {
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.mpTournaments[tournamentId]
-						.awardId = 0;
-					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							.tournamentTrophies[FAILED_AWARD - 1] != 0) {
-						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .tournamentTrophies[FAILED_AWARD - 1];
-					}
-				}
-			}
-		}
-	}
-
-	if (g_pilotData.missionSequenceActive == 1 && statType == MISSION_STAT_COMBAT) {
-		BattleSequenceState* battleState;
-		BattleMissionResult missionResult;
-		unsigned int resultIdx;
-		unsigned int battleAward;
-		int battleId;
-		int winningTeam;
-		int imperialVictories;
-		int rebelVictories;
-		int overallWinner;
-		int victoryMargin;
-		int playerResult;
-
-		battleState = &g_pilotData.battleSequenceState;
-		winningTeam = TEAM_COUNT;
-		for (teamIdx = 0; teamIdx < TEAM_COUNT; ++teamIdx) {
-			if (g_flightMissionState.runtime.teamGoalStatus[teamIdx][TEAM_GOAL_PRIMARY] == 1 &&
-				g_flightMissionState.runtime.teamGoalStatus[teamIdx][TEAM_GOAL_SECONDARY] != 1) {
-				winningTeam = (int)teamIdx;
-				break;
-			}
-		}
-		if (winningTeam == TEAM_COUNT) {
-			missionResult = BATTLE_MISSION_RESULT_DRAW;
-		} else if (winningTeam == 0) {
-			missionResult = BATTLE_MISSION_RESULT_IMPERIAL_VICTORY;
-		} else if (winningTeam == 1) {
-			missionResult = BATTLE_MISSION_RESULT_REBEL_VICTORY;
-		} else {
-			missionResult = BATTLE_MISSION_RESULT_DRAW;
-		}
-		battleState->missionResults[battleState->currentMissionIndex] = missionResult;
-		imperialVictories = 0;
-		rebelVictories = 0;
-		for (resultIdx = 0; resultIdx <= battleState->currentMissionIndex; ++resultIdx) {
-			if (battleState->missionResults[resultIdx] == BATTLE_MISSION_RESULT_IMPERIAL_VICTORY) {
-				++imperialVictories;
-			} else if (battleState->missionResults[resultIdx] == BATTLE_MISSION_RESULT_REBEL_VICTORY) {
-				++rebelVictories;
-			}
-		}
-		if (imperialVictories == battleState->victoriesNeeded) {
-			overallWinner = 0;
-			victoryMargin = imperialVictories - rebelVictories;
-		} else if (rebelVictories == battleState->victoriesNeeded) {
-			overallWinner = 1;
-			victoryMargin = rebelVictories - imperialVictories;
-		} else {
-			overallWinner = 2;
-			victoryMargin = 0;
-		}
-		playerResult = 0;
-		if (overallWinner != 2) {
-			playerResult = overallWinner == g_players[g_localPlayer].playerIff ? 1 : 2;
-		}
-		battleAward = 0;
-		if (playerResult == 2 && victoryMargin >= 2) {
-			battleAward = FAILED_AWARD;
-			g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[3] = FAILED_AWARD;
-		} else if (playerResult == 1) {
-			int alliedPlayers;
-			int enemyPlayers;
-			int playerBalance;
-			int awardPerformance;
-
-			alliedPlayers = 0;
-			enemyPlayers = 0;
-			for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
-				if (g_players[playerIdx].network.directPlayId != 0) {
-					if (g_players[playerIdx].playerIff == g_players[g_localPlayer].playerIff) {
-						++alliedPlayers;
-					} else {
-						++enemyPlayers;
-					}
-				}
-			}
-			playerBalance = enemyPlayers - alliedPlayers;
-			if (playerBalance > 0) {
-				playerBalance *= 2;
-			}
-			if (battleState->humanPlayerCount == 1 &&
-				g_flightMissionState.difficulty == GAME_DIFFICULTY_HARD) {
-				victoryMargin *= 2;
-			}
-			awardPerformance = victoryMargin + playerBalance;
-			if (awardPerformance >= 5) {
-				battleAward = 1;
-			} else if (awardPerformance == 4) {
-				battleAward = 2;
-			} else if (awardPerformance == 3) {
-				battleAward = 3;
-			} else if (awardPerformance == 2) {
-				battleAward = 4;
-			} else {
-				battleAward = 5;
-			}
-			g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[3] = (int)battleAward;
-		}
-
-		if (battleState->currentMissionIndex == 0) {
-			battleState->cumulativeScore = g_pilotData.missionScore;
-		} else {
-			battleState->cumulativeScore += g_pilotData.missionScore;
-		}
-		battleId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_BATTLES];
-		if (battleState->humanPlayerCount < 2) {
-			unsigned int oldAward;
-
-			if (battleState->currentMissionIndex == 0) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .spBattles[battleId]
-					  .attemptCount;
-			}
-			if (overallWinner != 2) {
-				if (playerResult == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spBattles[battleId]
-						  .victoryCount;
-				} else {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .spBattles[battleId]
-						  .defeatCount;
-				}
-			}
-			if (battleState->currentMissionIndex == 10) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId].spBattles[battleId].drawCount;
-				playerResult = 0;
-			}
-			if (g_pilotData.factionStatistics[g_pilotData.currentFactionId].spBattles[battleId].bestScore <
-				battleState->cumulativeScore) {
-				g_pilotData.factionStatistics[g_pilotData.currentFactionId].spBattles[battleId].bestScore =
-					battleState->cumulativeScore;
-			}
-			if (playerResult == 1 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-											 .spBattles[battleId]
-											 .bestVictoryMargin < victoryMargin) {
-				g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					.spBattles[battleId]
-					.bestVictoryMargin = victoryMargin;
-			}
-			oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						   .spBattles[battleId]
-						   .awardId;
-			if (battleAward != 0) {
-				if (oldAward == 0 || battleAward < oldAward) {
-					if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-												 .battleMedallions[oldAward - 1] != 0) {
-						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-							  .battleMedallions[oldAward - 1];
-					}
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId].spBattles[battleId].awardId =
-						(int)battleAward;
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .battleMedallions[battleAward - 1];
-				}
-			} else if (oldAward == FAILED_AWARD) {
-				g_pilotData.factionStatistics[g_pilotData.currentFactionId].spBattles[battleId].awardId = 0;
-				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.battleMedallions[FAILED_AWARD - 1] != 0) {
-					--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .battleMedallions[FAILED_AWARD - 1];
-				}
-			}
-		} else {
-			unsigned int oldAward;
-
-			if (battleState->currentMissionIndex == 0) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .mpBattles[battleId]
-					  .attemptCount;
-			}
-			if (overallWinner != 2) {
-				if (playerResult == 1) {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpBattles[battleId]
-						  .victoryCount;
-				} else {
-					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .mpBattles[battleId]
-						  .defeatCount;
-				}
-			}
-			if (battleState->currentMissionIndex == 10) {
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId].mpBattles[battleId].drawCount;
-				playerResult = 0;
-			}
-			if (g_pilotData.factionStatistics[g_pilotData.currentFactionId].mpBattles[battleId].bestScore <
-				battleState->cumulativeScore) {
-				g_pilotData.factionStatistics[g_pilotData.currentFactionId].mpBattles[battleId].bestScore =
-					battleState->cumulativeScore;
-			}
-			if (playerResult == 1 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-											 .mpBattles[battleId]
-											 .bestVictoryMargin < victoryMargin) {
-				g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					.mpBattles[battleId]
-					.bestVictoryMargin = victoryMargin;
-			}
-			oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						   .mpBattles[battleId]
-						   .awardId;
-			if (battleAward != 0) {
-				if (oldAward == 0 || battleAward < oldAward) {
-					if (oldAward == FAILED_AWARD &&
+					if ((unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpTournaments[tournamentId]
+								.bestPlacement > (unsigned int)overallPlacement ||
 						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-								.battleMedallions[FAILED_AWARD - 1] != 0) {
+								.mpTournaments[tournamentId]
+								.bestPlacement == 0) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpTournaments[tournamentId]
+							.bestPlacement = (int)overallPlacement;
+					}
+					if (overallPlacement == FIRST_PLACE &&
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpTournaments[tournamentId]
+								.bestMargin < (unsigned int)overallMargin &&
+						overallMargin > 0) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpTournaments[tournamentId]
+							.bestMargin = overallMargin;
+					}
+					if (tournamentAward != 0) {
+						oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									   .mpTournaments[tournamentId]
+									   .awardId;
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[1] =
+							(int)tournamentAward;
+						if (oldAward > (unsigned int)tournamentAward || oldAward == 0) {
+							if (oldAward == FAILED_AWARD &&
+								g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+										.tournamentTrophies[FAILED_AWARD - 1] != 0) {
+								--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									  .tournamentTrophies[FAILED_AWARD - 1];
+							}
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.mpTournaments[tournamentId]
+								.awardId = (int)tournamentAward;
+						}
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .tournamentTrophies[tournamentAward - 1];
+					} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								   .mpTournaments[tournamentId]
+								   .awardId == FAILED_AWARD) {
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpTournaments[tournamentId]
+							.awardId = 0;
+						if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								.tournamentTrophies[FAILED_AWARD - 1] != 0) {
+							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .tournamentTrophies[FAILED_AWARD - 1];
+						}
+					}
+				}
+			}
+		}
+
+		if (g_pilotData.missionSequenceActive == 1 && statType == MISSION_STAT_COMBAT) {
+			BattleMissionResult missionResult;
+			unsigned int resultIdx;
+			unsigned int battleAward;
+			int battleId;
+			int imperialVictories;
+			int rebelVictories;
+			int overallWinner;
+			int victoryMargin;
+			int playerResult;
+
+			battleId = g_pilotData.missionDescriptionIds[MISSION_DIRECTORY_BATTLES];
+			for (teamIdx = 0; teamIdx < TEAM_COUNT; ++teamIdx) {
+				if (g_flightMissionState.runtime.teamGoalStatus[teamIdx][TEAM_GOAL_PRIMARY] == 1 &&
+					g_flightMissionState.runtime.teamGoalStatus[teamIdx][TEAM_GOAL_SECONDARY] != 1) {
+					break;
+				}
+			}
+			if (teamIdx == TEAM_COUNT) {
+				missionResult = BATTLE_MISSION_RESULT_DRAW;
+			} else if (teamIdx == 0) {
+				missionResult = BATTLE_MISSION_RESULT_IMPERIAL_VICTORY;
+			} else if (teamIdx == 1) {
+				missionResult = BATTLE_MISSION_RESULT_REBEL_VICTORY;
+			} else {
+				missionResult = BATTLE_MISSION_RESULT_DRAW;
+			}
+			imperialVictories = 0;
+			rebelVictories = 0;
+			g_pilotData.battleSequenceState
+				.missionResults[g_pilotData.battleSequenceState.currentMissionIndex] = missionResult;
+			for (resultIdx = 0; resultIdx <= g_pilotData.battleSequenceState.currentMissionIndex;
+				 ++resultIdx) {
+				if (g_pilotData.battleSequenceState.missionResults[resultIdx] ==
+					BATTLE_MISSION_RESULT_IMPERIAL_VICTORY) {
+					++imperialVictories;
+				} else if (g_pilotData.battleSequenceState.missionResults[resultIdx] ==
+						   BATTLE_MISSION_RESULT_REBEL_VICTORY) {
+					++rebelVictories;
+				}
+			}
+			if (imperialVictories == g_pilotData.battleSequenceState.victoriesNeeded) {
+				overallWinner = 0;
+				victoryMargin = imperialVictories - rebelVictories;
+			} else if (rebelVictories == g_pilotData.battleSequenceState.victoriesNeeded) {
+				overallWinner = 1;
+				victoryMargin = rebelVictories - imperialVictories;
+			} else {
+				overallWinner = 2;
+				victoryMargin = 0;
+			}
+			playerResult = 0;
+			if (overallWinner != 2) {
+				if ((overallWinner == 0 && g_players[g_localPlayer].playerIff == 0) ||
+					(overallWinner == 1 && g_players[g_localPlayer].playerIff == 1)) {
+					playerResult = 1;
+				} else {
+					playerResult = 2;
+				}
+			}
+			battleAward = 0;
+			if (playerResult != 0) {
+				if (playerResult == 2 && victoryMargin >= 2) {
+					battleAward = FAILED_AWARD;
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[3] =
+						FAILED_AWARD;
+				} else if (playerResult == 1) {
+					int alliedPlayers;
+					int enemyPlayers;
+					int playerBalance;
+					int awardPerformance;
+
+					enemyPlayers = 0;
+					alliedPlayers = 0;
+					for (playerIdx = 0; playerIdx < PLAYER_COUNT; ++playerIdx) {
+						if (g_players[playerIdx].network.directPlayId != 0) {
+							if (g_players[g_localPlayer].playerIff == g_players[playerIdx].playerIff) {
+								++alliedPlayers;
+							} else {
+								++enemyPlayers;
+							}
+						}
+					}
+					playerBalance = enemyPlayers - alliedPlayers;
+					if (playerBalance > 0) {
+						playerBalance *= 2;
+					}
+					if (g_pilotData.battleSequenceState.humanPlayerCount == 1 &&
+						g_flightMissionState.difficulty == GAME_DIFFICULTY_HARD) {
+						victoryMargin *= 2;
+					}
+					awardPerformance = victoryMargin + playerBalance;
+					if (awardPerformance >= 5) {
+						battleAward = 1;
+					} else if (awardPerformance >= 4) {
+						battleAward = 2;
+					} else if (awardPerformance >= 3) {
+						battleAward = 3;
+					} else if (awardPerformance >= 2) {
+						battleAward = 4;
+					} else {
+						battleAward = 5;
+					}
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId].missionAwards[3] =
+						(int)battleAward;
+				}
+			}
+
+			if (g_pilotData.battleSequenceState.currentMissionIndex == 0) {
+				g_pilotData.battleSequenceState.cumulativeScore = g_pilotData.missionScore;
+			} else {
+				g_pilotData.battleSequenceState.cumulativeScore += g_pilotData.missionScore;
+			}
+			if (g_pilotData.battleSequenceState.humanPlayerCount < 2) {
+				if (g_pilotData.battleSequenceState.currentMissionIndex == 0) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .spBattles[battleId]
+						  .attemptCount;
+				}
+				playerResult = 0;
+				if (overallWinner != 2) {
+					if ((overallWinner == 0 && g_players[g_localPlayer].playerIff == 0) ||
+						(overallWinner == 1 && g_players[g_localPlayer].playerIff == 1)) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spBattles[battleId]
+							  .victoryCount;
+						playerResult = 1;
+					} else {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .spBattles[battleId]
+							  .defeatCount;
+						playerResult = 2;
+					}
+				}
+				if (g_pilotData.battleSequenceState.currentMissionIndex == 10) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .spBattles[battleId]
+						  .drawCount;
+					playerResult = 0;
+				}
+				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						.spBattles[battleId]
+						.bestScore < g_pilotData.battleSequenceState.cumulativeScore) {
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						.spBattles[battleId]
+						.bestScore = g_pilotData.battleSequenceState.cumulativeScore;
+				}
+				if (playerResult == 1 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+												 .spBattles[battleId]
+												 .bestVictoryMargin < (unsigned int)victoryMargin) {
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						.spBattles[battleId]
+						.bestVictoryMargin = victoryMargin;
+				}
+				if (battleAward != 0) {
+					unsigned int oldAward;
+
+					oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								   .spBattles[battleId]
+								   .awardId;
+					if (oldAward > battleAward || oldAward == 0) {
+						if (oldAward != 0 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+													 .battleMedallions[oldAward - 1] != 0) {
+							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .battleMedallions[oldAward - 1];
+						}
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.spBattles[battleId]
+							.awardId = (int)battleAward;
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .battleMedallions[battleAward - 1];
+					}
+				} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							   .spBattles[battleId]
+							   .awardId == FAILED_AWARD) {
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId].spBattles[battleId].awardId =
+						0;
+					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.battleMedallions[FAILED_AWARD - 1] != 0) {
 						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
 							  .battleMedallions[FAILED_AWARD - 1];
 					}
-					g_pilotData.factionStatistics[g_pilotData.currentFactionId].mpBattles[battleId].awardId =
-						(int)battleAward;
 				}
-				++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-					  .battleMedallions[battleAward - 1];
-			} else if (oldAward == FAILED_AWARD) {
-				g_pilotData.factionStatistics[g_pilotData.currentFactionId].mpBattles[battleId].awardId = 0;
+			} else {
+				if (g_pilotData.battleSequenceState.currentMissionIndex == 0) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .mpBattles[battleId]
+						  .attemptCount;
+				}
+				playerResult = 0;
+				if (overallWinner != 2) {
+					if ((overallWinner == 0 && g_players[g_localPlayer].playerIff == 0) ||
+						(overallWinner == 1 && g_players[g_localPlayer].playerIff == 1)) {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpBattles[battleId]
+							  .victoryCount;
+						playerResult = 1;
+					} else {
+						++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .mpBattles[battleId]
+							  .defeatCount;
+						playerResult = 2;
+					}
+				}
+				if (g_pilotData.battleSequenceState.currentMissionIndex == 10) {
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .mpBattles[battleId]
+						  .drawCount;
+					playerResult = 0;
+				}
 				if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						.battleMedallions[FAILED_AWARD - 1] != 0) {
-					--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
-						  .battleMedallions[FAILED_AWARD - 1];
+						.mpBattles[battleId]
+						.bestScore < g_pilotData.battleSequenceState.cumulativeScore) {
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						.mpBattles[battleId]
+						.bestScore = g_pilotData.battleSequenceState.cumulativeScore;
+				}
+				if (playerResult == 1 && g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+												 .mpBattles[battleId]
+												 .bestVictoryMargin < (unsigned int)victoryMargin) {
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						.mpBattles[battleId]
+						.bestVictoryMargin = victoryMargin;
+				}
+				if (battleAward != 0) {
+					unsigned int oldAward;
+
+					oldAward = (unsigned int)g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								   .mpBattles[battleId]
+								   .awardId;
+					if (oldAward > battleAward || oldAward == 0) {
+						if (oldAward == FAILED_AWARD &&
+							g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+									.battleMedallions[FAILED_AWARD - 1] != 0) {
+							--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+								  .battleMedallions[FAILED_AWARD - 1];
+						}
+						g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.mpBattles[battleId]
+							.awardId = (int)battleAward;
+					}
+					++g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+						  .battleMedallions[battleAward - 1];
+				} else if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							   .mpBattles[battleId]
+							   .awardId == FAILED_AWARD) {
+					g_pilotData.factionStatistics[g_pilotData.currentFactionId].mpBattles[battleId].awardId =
+						0;
+					if (g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							.battleMedallions[FAILED_AWARD - 1] != 0) {
+						--g_pilotData.factionStatistics[g_pilotData.currentFactionId]
+							  .battleMedallions[FAILED_AWARD - 1];
+					}
 				}
 			}
 		}
 	}
+	return 0;
 }
 
 // FUNCTION: XVT 0x49C3C0

@@ -75,7 +75,7 @@ extern const uint8_t g_placementAwardLevels[24];
 extern const int g_missionAwardWinThresholds[5];
 extern const int g_missionAwardScoreMarginThresholds[3];
 
-void FeDiskIo_CommitFlightResults(int arg1, int arg2);
+int16_t FeDiskIo_CommitFlightResults(int arg1, int arg2);
 uint16_t FeDiskIo_ReadAllBytesOrFatal(const char* fileName, void* dst);
 void FeDiskIo_InitGlobalBuffers(void);
 void FeDiskIo_UnlockGlobalBuffers(void);
