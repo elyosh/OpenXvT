@@ -194,6 +194,17 @@ int Sound_QueueEffect(const char* soundName, int param2, int loop, int priority,
 		return 0;
 	if (Sound_FindLoadedEffectByName(name) == -1)
 		return 0;
+#ifdef XVT_MODERN
+	/* Loop callers test only playing instances; several simulation steps before
+	   a flush would otherwise start identical, phase-aligned loops. */
+	if (loop == 1) {
+		for (queueIndex = 0; queueIndex < g_soundQueueCount; ++queueIndex) {
+			if (g_soundQueue[queueIndex].loop == 1 &&
+				strncmp(g_soundQueue[queueIndex].name, name, sizeof(g_soundQueue[queueIndex].name)) == 0)
+				return 1;
+		}
+	}
+#endif
 
 	queueIndex = 0;
 	if (g_soundQueueCount > queueIndex) {
