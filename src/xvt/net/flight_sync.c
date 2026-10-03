@@ -361,6 +361,20 @@ void FlightSync_ApplyRemotePlayerRenderSmoothing(void) {
 			object->mobj->simStateTimestamp - g_remotePlayerRenderSamples[playerIndex].simStateTimestamp;
 		if (elapsedTime < 0)
 			continue;
+#ifdef XVT_MODERN
+		/* Network125 can present a frame without advancing the world. The original
+		 * only reaches this with a rollback and then closes half the drawn error at
+		 * once; hold the drawn pose so the ship stays still with the rest of the frame. */
+		if (elapsedTime == 0) {
+			object->world_x = g_remotePlayerRenderSamples[playerIndex].worldX;
+			object->world_y = g_remotePlayerRenderSamples[playerIndex].worldY;
+			object->world_z = g_remotePlayerRenderSamples[playerIndex].worldZ;
+			object->roll = (uint16_t)g_remotePlayerRenderSamples[playerIndex].roll;
+			object->pitch = (uint16_t)g_remotePlayerRenderSamples[playerIndex].pitch;
+			object->yaw = (uint16_t)g_remotePlayerRenderSamples[playerIndex].yaw;
+			continue;
+		}
+#endif
 
 		predictionDistance = 0;
 		if (elapsedTime > 0 && g_remotePlayerRenderSamples[playerIndex].speedMagnitude != 0) {
