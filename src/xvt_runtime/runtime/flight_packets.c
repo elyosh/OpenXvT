@@ -2,12 +2,25 @@
 #include "xvt_runtime/runtime/flight_network.h"
 #include "xvt_runtime/runtime/resync_task.h"
 
+enum { XVT_STARTUP_CLOCK_PROBES = 3 };
+
+/* Startup probes measure the lead before the first checksum-driven probe. The
+ * smallest sample is least affected by slow first flight frames. */
+static struct {
+	int active, samples, valid, lead;
+} g_startupProbes;
+
+void XvtFlightNetwork_BeginClockProbes(void) {
+	g_startupProbes.active = 1;
+	g_startupProbes.samples = g_startupProbes.valid = 0;
+	FlightNet_SendClockProbeToHost();
+}
+
 static int XvtFlightNetwork_Control(int senderDpid, int* packet) {
 	enum {
 		PLAYER_COUNT = XVT_FLIGHT_PLAYERS,
 		WORLD_STATE_CHUNK_COUNT = XVT_RESYNC_CHUNKS_PER_BATCH,
 		PACKET_CLOCK_PROBE_REPLY_SIZE = 2 * sizeof(int),
-		CLOCK_PROBE_BIAS_MS = 20,
 		CLOCK_PROBE_LIMIT_MS = 472
 	};
 
@@ -65,7 +78,9 @@ static int XvtFlightNetwork_Control(int senderDpid, int* packet) {
 			return 0;
 		case NET_PACKET_SERVER_CHECKSUM:
 			FlightSync_HandleServerChecksumPacket((uint8_t*)packet);
-			FlightNet_SendClockProbeToHost();
+			/* The host receives its own checksum broadcast; probing itself would move its lead. */
+			if (!NetSession_GetLocalPlayerId())
+				FlightNet_SendClockProbeToHost();
 			return 0;
 		case NET_PACKET_ACK:
 			if (g_flightNetPendingAckCount != 0) {
@@ -91,34 +106,14 @@ static int XvtFlightNetwork_Control(int senderDpid, int* packet) {
 				}
 			}
 			return 0;
-		case NET_PACKET_CLOCK_PROBE: {
-			int adjustment;
-			int targetLead;
-
+		case NET_PACKET_CLOCK_PROBE:
+			/* The host keeps its fixed lead; it only echoes the probe so clients can
+			 * measure their round trip. */
 			g_flightNetScratchPacket.packetType = NET_PACKET_CLOCK_PROBE_REPLY;
 			g_flightNetScratchPacket.payloadDwords[0] = packet[1];
-
 			XvtFlightNetwork_SendPacket(senderDpid, (unsigned int*)&g_flightNetScratchPacket,
 										PACKET_CLOCK_PROBE_REPLY_SIZE);
-			targetLead = packet[2];
-			if (g_asyncFlag == 0 || g_flightNetSmallSessionPlayerThreshold > g_activeFlightPlayerCount) {
-				targetLead >>= 1;
-			}
-			if (g_flightNetClockLeadAllowanceMs < targetLead) {
-				adjustment = (targetLead - g_flightNetClockLeadAllowanceMs) >> 1;
-				if (adjustment == 0) {
-					adjustment = 1;
-				}
-				g_flightNetClockLeadAllowanceMs += adjustment;
-			} else if (g_flightNetClockLeadAllowanceMs > targetLead) {
-				adjustment = (g_flightNetClockLeadAllowanceMs - targetLead) >> 1;
-				if (adjustment == 0) {
-					adjustment = 1;
-				}
-				g_flightNetClockLeadAllowanceMs -= adjustment;
-			}
 			return 0;
-		}
 		case NET_PACKET_CLOCK_PROBE_REPLY:
 			if (NetSession_GetLocalPlayerId() == 0 && packet[1] == g_flightNetClockProbeTimestamp) {
 				int adjustment;
@@ -127,9 +122,22 @@ static int XvtFlightNetwork_Control(int senderDpid, int* packet) {
 				targetLead = g_flightNetClockAdjustAccumTicks;
 				targetLead += g_inputTimestamp;
 				targetLead -= packet[1];
-				targetLead += CLOCK_PROBE_BIAS_MS;
+				targetLead += XVT_CLOCK_PROBE_BIAS_TICKS;
 
-				if (targetLead < CLOCK_PROBE_LIMIT_MS) {
+				if (g_startupProbes.active) {
+					if (targetLead < CLOCK_PROBE_LIMIT_MS &&
+						(!g_startupProbes.valid || targetLead < g_startupProbes.lead)) {
+						g_startupProbes.lead = targetLead;
+						g_startupProbes.valid = 1;
+					}
+					if (++g_startupProbes.samples < XVT_STARTUP_CLOCK_PROBES) {
+						FlightNet_SendClockProbeToHost();
+					} else {
+						g_startupProbes.active = 0;
+						if (g_startupProbes.valid)
+							g_flightNetClockLeadAllowanceMs = g_startupProbes.lead;
+					}
+				} else if (targetLead < CLOCK_PROBE_LIMIT_MS) {
 					if (g_flightNetClockLeadAllowanceMs < targetLead) {
 						adjustment = (targetLead - g_flightNetClockLeadAllowanceMs) >> 1;
 						if (adjustment == 0) {

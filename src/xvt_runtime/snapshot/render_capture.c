@@ -57,6 +57,7 @@ typedef struct XvtAuthoritativePose {
 static XvtAuthoritativePose g_authoritativePoses[XVT_SNAP_OBJECTS], g_candidatePoses[XVT_SNAP_OBJECTS];
 static int g_candidateTick = -1;
 static int g_authoritativeTick = -1, g_networkCorrection;
+static unsigned g_networkCorrections;
 
 static uint64_t g_mission, g_world, g_serial;
 static int g_active, g_published;
@@ -566,8 +567,10 @@ void XvtRenderCapture_CompleteNetworkWorld(void) {
 		return;
 	/* Prediction corrections invalidate world interpolation, but the retained
 	 * cockpit still represents the classic HUD surface composed by the next frame. */
-	if (g_networkCorrection)
+	if (g_networkCorrection) {
+		++g_networkCorrections;
 		InvalidateWorldHistory();
+	}
 	unsigned end = (unsigned)(g_regionMainObjectSlotEnd + g_regionStaticObjectSlotCount);
 	if (end > XVT_SNAP_OBJECTS)
 		end = XVT_SNAP_OBJECTS;
@@ -575,5 +578,7 @@ void XvtRenderCapture_CompleteNetworkWorld(void) {
 		g_candidatePoses[slot] = XvtRenderCapture_AuthoritativePose(slot);
 	g_candidateTick = g_gameTime;
 }
+
+unsigned XvtRenderCapture_NetworkCorrections(void) { return g_networkCorrections; }
 
 int XvtRenderCapture_LastViewTick(void) { return g_hasViewTime ? g_lastViewTime : -1; }

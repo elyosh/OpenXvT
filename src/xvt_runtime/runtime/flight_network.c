@@ -404,13 +404,17 @@ int XvtFlightNetwork_Start(void) {
 			return XVT_FLIGHT_NETWORK_PENDING;
 		g_flightNetPendingAckCount = 0;
 		g_inputTimestamp += Time_GetFrameDelta();
-		g_flightNetClockLeadAllowanceMs = g_inputTimestamp;
 		if (g_inputTimestamp < 35) {
 			int adjustment = 35 - g_inputTimestamp;
-			g_flightNetClockLeadAllowanceMs += adjustment;
 			g_inputTimestamp += adjustment;
 			g_flightNetClockAdjustAccumTicks -= adjustment;
 		}
+		/* The host keeps a fixed lead instead of the start-up delay measured above.
+		 * Its clock starts at that lead; the adjustment accumulator keeps the world
+		 * message schedule on the measured start, as clock nudges do. */
+		g_flightNetClockLeadAllowanceMs = XVT_HOST_CLOCK_LEAD_TICKS;
+		g_flightNetClockAdjustAccumTicks += g_inputTimestamp - XVT_HOST_CLOCK_LEAD_TICKS;
+		g_inputTimestamp = XVT_HOST_CLOCK_LEAD_TICKS;
 		return XvtFlightNetwork_Finish(1);
 	}
 	packet = XvtFlightNetwork_Poll(&sender, &size, 60);
@@ -430,9 +434,13 @@ int XvtFlightNetwork_Start(void) {
 			XvtFlightNetwork_SendPacket(NetSession_GetHostDplayId(), (unsigned*)&g_flightNetScratchPacket, 4);
 			Time_GetFrameDelta();
 			g_serverTickTime = g_gameTime = g_inputTimestamp = 0;
-			g_flightNetClockLeadAllowanceMs = g_asyncFlag ? 130 : 30;
-			if (!NetSession_GetLocalPlayerId())
+			/* Unlike the original's 130-tick async lead, both modes start at 30; startup
+			 * probes replace it within a few round trips. */
+			g_flightNetClockLeadAllowanceMs = 30;
+			if (!NetSession_GetLocalPlayerId()) {
+				XvtFlightNetwork_BeginClockProbes();
 				return XvtFlightNetwork_Finish(1);
+			}
 			g_flightNetPendingAckCount = g_sync.expected == 1 ? 1 : 2;
 			FlightNet_InitMissionStartAckState();
 			g_sync.phase = SYNC_START_ACKS;

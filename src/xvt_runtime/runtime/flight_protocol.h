@@ -28,6 +28,12 @@ enum {
 	XVT_REFERENCE_TICKS = 8,
 	XVT_INPUT_BATCH_TICKS = 4,
 	XVT_WORLD_MESSAGE_TICKS = 8,
+	/* Clients lead confirmed time by their round trip plus this margin. */
+	XVT_CLOCK_PROBE_BIAS_TICKS = 20,
+	/* Clients' inputs reach the host about the probe margin ahead of confirmed time.
+	 * Staying just inside it keeps the host from predicting client controls, while
+	 * its own inputs reach clients as early as that allows. */
+	XVT_HOST_CLOCK_LEAD_TICKS = XVT_CLOCK_PROBE_BIAS_TICKS - 4,
 	XVT_PREDICTION_LEAD_TICKS = 256,
 	XVT_SIM_STEPS_PER_ITERATION = 16,
 	XVT_SIM_BUDGET_US = 2000,

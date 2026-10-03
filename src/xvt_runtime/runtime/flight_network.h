@@ -12,6 +12,7 @@ extern "C" {
 #endif
 
 void XvtFlightNetwork_ProcessPackets(void);
+void XvtFlightNetwork_BeginClockProbes(void);
 int XvtFlightNetwork_ShouldSend(int inputTimestamp);
 int XvtFlightNetwork_NeedsRecovery(void);
 void XvtFlightNetwork_RequestRecovery(void);

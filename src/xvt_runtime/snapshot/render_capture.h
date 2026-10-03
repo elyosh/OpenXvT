@@ -14,6 +14,8 @@ void XvtRenderCapture_WorldChanged(void);
 int XvtRenderCapture_LastViewTick(void);
 void XvtRenderCapture_CheckNetworkCorrection(void);
 void XvtRenderCapture_CompleteNetworkWorld(void);
+/* Cumulative count of prediction corrections that reset world history. */
+unsigned XvtRenderCapture_NetworkCorrections(void);
 void XvtRenderCapture_CaptureView(void);
 void XvtRenderCapture_BeginClassicFrame(void);
 void XvtRenderCapture_FrontendPreview(uint16_t handle, const float position[3], const float orientation[9],
