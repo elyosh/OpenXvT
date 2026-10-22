@@ -1,12 +1,14 @@
 #include "xvt_runtime/runtime/resync_task.h"
 #include "xvt_runtime/input/flight_controls.h"
 #include "xvt_runtime/runtime/flight_checkpoint.h"
+#include "xvt_runtime/runtime/flight_diag.h"
 #include "xvt_runtime/runtime/flight_internal.h"
 #include "xvt_runtime/runtime/flight_messages.h"
 #include "xvt_runtime/runtime/flight_network.h"
 #include "xvt_runtime/snapshot/render_capture.h"
 #include "xvt_runtime/snapshot/world_state.h"
 #include "xvt_runtime/timing/flight_timing.h"
+#include <stdio.h>
 #include <stdlib.h>
 
 enum {
@@ -26,7 +28,7 @@ static struct {
 	uint8_t* world;
 	uint8_t* pinned;
 	unsigned checksums[XVT_WORLD_CHECKSUM_REGIONS], lengths[XVT_WORLD_CHECKSUM_REGIONS], epoch;
-	int completed_tick, restart_requested;
+	int completed_tick, restart_requested, escaped;
 } g_resync;
 
 static struct {
@@ -40,6 +42,7 @@ void XvtResync_DeferChecksum(int sender, const int* packet) {
 	/* Other peers' checksum continuations resume after the current transfer. */
 	if (g_checksum_count == XVT_DEFERRED_CHECKSUMS) {
 		Aeron_LogError("xvt.network", "checksum continuation queue exhausted");
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_CHECKSUM_QUEUE, sender);
 		g_flightMissionState.missionEndPending = 1;
 		return;
 	}
@@ -49,7 +52,19 @@ void XvtResync_DeferChecksum(int sender, const int* packet) {
 }
 
 static int XvtResync_Escape(void) {
-	return FlightInput_HasKeyReady() && FlightInput_GetNextKey() == FLIGHT_KEY_ESCAPE;
+	if (!FlightInput_HasKeyReady() || FlightInput_GetNextKey() != FLIGHT_KEY_ESCAPE)
+		return 0;
+	g_resync.escaped = 1;
+	return 1;
+}
+
+/* Host side: the peer receiving the world state is dropped from the mission. */
+static void XvtResync_AbandonSend(int dpid, const char* stage) {
+	int slot = NetSession_FindPlayerSlotByDpid(dpid);
+	Aeron_LogWarn("xvt.network",
+				  "world state transfer to player %d (dpid %d) abandoned: %s%s; removing the player", slot,
+				  dpid, stage, g_resync.escaped ? " (host pressed ESC)" : "");
+	FlightNet_BroadcastPlayerAbort(slot);
 }
 
 static void XvtResync_CompleteChecksum(void) {
@@ -80,6 +95,8 @@ static void XvtResync_Pulse(int resending) {
 }
 
 static void XvtResync_EndSend(int success) {
+	if (!success)
+		Aeron_LogWarn("xvt.network", "world state transfer to dpid %d failed", g_resync.peer_dpid);
 	FlightAlert_RestoreBoxBackground();
 	g_resync.owns_alert = 0;
 	Time_GetFrameDelta();
@@ -138,11 +155,14 @@ int XvtResync_BeginSend(int player, uint8_t* world, int size) {
 	XvtFlightNetwork_Broadcast((unsigned*)&g_flightNetScratchPacket, 8);
 	size_t prefix;
 	if (!XvtFlightCheckpoint_Validate(world, size, &prefix, &g_resync.completed_tick)) {
+		Aeron_LogWarn("xvt.network", "world state for dpid %d is not a valid checkpoint (%d bytes)", player,
+					  size);
 		XvtResync_EndSend(0);
 		return 0;
 	}
 	g_resync.pinned = malloc((size_t)size);
 	if (!g_resync.pinned) {
+		Aeron_LogWarn("xvt.network", "cannot allocate %d bytes for the world state transfer", size);
 		XvtResync_EndSend(0);
 		return 0;
 	}
@@ -150,9 +170,12 @@ int XvtResync_BeginSend(int player, uint8_t* world, int size) {
 	g_resync.world = g_resync.pinned;
 	g_resync.epoch = (unsigned)g_resync.completed_tick;
 	if (!XvtSnapshot_ChecksumImage(world, size, g_resync.checksums, g_resync.lengths)) {
+		Aeron_LogWarn("xvt.network", "cannot checksum the world state for dpid %d", player);
 		XvtResync_EndSend(0);
 		return 0;
 	}
+	Aeron_LogInfo("xvt.network", "sending world state to dpid %d '%s': %d bytes, tick %d", player,
+				  name ? name : "?", size, g_resync.completed_tick);
 	XvtResync_SendRequest();
 	g_flightNetPendingAckCount = 1;
 	g_flightNetRemoteResyncChecksumsReceivedFlag = 0;
@@ -202,7 +225,7 @@ static void XvtResync_Checksums(void) {
 			XvtResync_NewChunk();
 			g_resync.phase = RESYNC_BUILD;
 		} else if (!--g_resync.retries) {
-			FlightNet_BroadcastPlayerAbort(NetSession_FindPlayerSlotByDpid(g_resync.peer_dpid));
+			XvtResync_AbandonSend(g_resync.peer_dpid, "the peer never confirmed the checksum table");
 			XvtResync_EndSend(0);
 		} else {
 			g_resync.elapsed = 0;
@@ -288,7 +311,9 @@ int XvtResync_WaitAcks(int player, int count) {
 	g_resync.ack_elapsed = 0;
 	if (g_resync.ack_retries)
 		return -1;
-	FlightNet_BroadcastPlayerAbort(NetSession_FindPlayerSlotByDpid(player));
+	char stage[64];
+	snprintf(stage, sizeof stage, "chunk acknowledgements stalled at %d of %d", ack, count);
+	XvtResync_AbandonSend(player, stage);
 	return 0;
 }
 
@@ -343,9 +368,10 @@ static void XvtResync_Apply(void) {
 		return;
 	}
 	if (g_flightNetPendingAckCount == 1) {
-		FlightNet_BroadcastPlayerAbort(NetSession_FindPlayerSlotByDpid(g_resync.peer_dpid));
+		XvtResync_AbandonSend(g_resync.peer_dpid, "the peer never acknowledged applying the world state");
 		g_flightNetPendingAckCount = 0;
-	}
+	} else
+		Aeron_LogInfo("xvt.network", "world state transfer to dpid %d complete", g_resync.peer_dpid);
 	g_inputTimestamp += Time_GetFrameDelta();
 	g_inputTimestamp = g_flightNetClockLeadAllowanceMs + g_serverTickTime;
 	g_flightNetScratchPacket.packetType = NET_PACKET_RESYNC_NOTICE;
@@ -355,8 +381,10 @@ static void XvtResync_Apply(void) {
 }
 
 static void XvtResync_RestartReceive(void) {
-	XvtFlightNetwork_RequestRecovery();
+	XvtFlightNetwork_RequestRecovery("state recovery restarted");
+	Aeron_LogWarn("xvt.network", "restarting state recovery (attempt %d)", g_receive.restarts + 1);
 	if (++g_receive.restarts > XVT_RESYNC_REPLAY_RESTARTS) {
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_RESYNC_RESTARTS, g_receive.restarts);
 		FlightNet_BroadcastPlayerAbort(g_localPlayer);
 		g_flightMissionState.missionEndPending = 1;
 		XvtResync_Reset();
@@ -403,6 +431,8 @@ static void XvtResync_ServiceChecksums(void) {
 
 void XvtResync_Tick(void) {
 	if (g_resync.phase != RESYNC_IDLE && NetSession_GetLocalPlayerId() && g_resync.restart_requested) {
+		Aeron_LogInfo("xvt.network", "world state transfer to dpid %d restarted at the peer's request",
+					  g_resync.peer_dpid);
 		if (g_resync.owns_alert)
 			FlightAlert_RestoreBoxBackground();
 		free(g_resync.pinned);
@@ -427,6 +457,7 @@ void XvtResync_Tick(void) {
 				break;
 			}
 			if (Aeron_NowUs() >= g_receive.deadline) {
+				XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_RESYNC_RECEIVE_TIMEOUT, g_receive.size);
 				g_flightMissionState.missionEndPending = 1;
 				XvtResync_Reset();
 			}
@@ -446,6 +477,7 @@ void XvtResync_Tick(void) {
 					FlightAlert_RestoreBoxBackground();
 				g_resync.owns_alert = 0;
 				g_resync.phase = RESYNC_IDLE;
+				Aeron_LogInfo("xvt.network", "state recovery complete at tick %d", g_serverTickTime);
 				XvtFlightNetwork_Recovered();
 				XvtFlightControls_Recover();
 				if (replay != XVT_REPLAY_TERMINAL)
@@ -541,6 +573,7 @@ void XvtResync_RequestState(void) {
 		return;
 	if (g_receive.request_sent) {
 		if (Aeron_NowUs() >= g_receive.deadline) {
+			XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_STATE_REQUEST_TIMEOUT, (int)g_receive.table_valid);
 			FlightNet_BroadcastPlayerAbort(g_localPlayer);
 			g_flightMissionState.missionEndPending = 1;
 		}
@@ -548,6 +581,7 @@ void XvtResync_RequestState(void) {
 	}
 	if (NetSession_GetLocalPlayerId()) {
 		/* A host cannot obtain an authoritative image from a client. */
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_HOST_RECOVERY, g_serverTickTime);
 		g_flightMissionState.missionEndPending = 1;
 		FlightNet_BroadcastLocalPlayerLeft();
 		return;
@@ -561,6 +595,8 @@ void XvtResync_RequestState(void) {
 	}
 	XvtWire_Set32(packet.request_state, XVT_CHECKSUM_REQUEST_STATE);
 	XvtFlightNetwork_SendWire(NetSession_GetHostDplayId(), &packet, sizeof packet);
+	Aeron_LogInfo("xvt.network", "requesting world state from the host at confirmed tick %d",
+				  g_serverTickTime);
 	g_receive.request_sent = 1;
 	g_receive.deadline = Aeron_NowUs() + (uint64_t)XVT_PEER_TIMEOUT_TICKS * XVT_FLIGHT_TICK_US;
 }
@@ -581,7 +617,7 @@ static int XvtResync_FullRequest(const uint8_t* bytes, unsigned size) {
 		return 1;
 	if (g_resync.phase != RESYNC_FULL_RECEIVE) {
 		if (!XvtFlightMessages_PrepareRecovery(tick)) {
-			XvtFlightNetwork_RequestRecovery();
+			XvtFlightNetwork_RequestRecovery("replay storage exhausted preparing recovery to tick %u", tick);
 			g_receive.restart_pending = 1;
 			return 1;
 		}
@@ -595,6 +631,7 @@ static int XvtResync_FullRequest(const uint8_t* bytes, unsigned size) {
 			g_resync.owns_alert = 1;
 		}
 		FlightAlert_DrawBox(1, g_strDiskIoMessages[DISK_IO_STR_COM_FAILURE_RECEIVING], 0x30);
+		Aeron_LogInfo("xvt.network", "receiving world state from the host: %zu bytes, tick %u", total, tick);
 		g_resync.phase = RESYNC_FULL_RECEIVE;
 	}
 	g_receive.deadline = Aeron_NowUs() + (uint64_t)XVT_PEER_TIMEOUT_TICKS * XVT_FLIGHT_TICK_US;
@@ -652,6 +689,7 @@ static int XvtResync_FullApply(const uint8_t* bytes, unsigned size) {
 		XvtWire_Get32(apply.image_bytes) != (unsigned)g_receive.size)
 		return 1;
 	if (XvtFlightNetwork_NeedsRecovery()) {
+		Aeron_LogWarn("xvt.network", "world state received while recovery is still required");
 		g_receive.restart_pending = 1;
 		return 1;
 	}
@@ -659,10 +697,12 @@ static int XvtResync_FullApply(const uint8_t* bytes, unsigned size) {
 	if (!XvtSnapshot_ChecksumImage(g_worldStateDupBuffer, g_receive.size, checksums, lengths) ||
 		memcmp(checksums, g_receive.checksums, sizeof checksums) ||
 		memcmp(lengths, g_receive.lengths, sizeof lengths)) {
+		Aeron_LogWarn("xvt.network", "received world state does not match the host's checksum table");
 		g_receive.restart_pending = 1;
 		return 1;
 	}
 	if (!XvtSnapshot_Decode(g_worldStateDupBuffer, g_receive.size)) {
+		Aeron_LogWarn("xvt.network", "received world state cannot be decoded");
 		g_receive.restart_pending = 1;
 		return 1;
 	}
@@ -678,6 +718,7 @@ static int XvtResync_FullApply(const uint8_t* bytes, unsigned size) {
 	XvtFlightFrame_ResetReplay();
 	XvtFlightNetwork_Recovered();
 	g_flightNetBufferWorldMessagesUntilChecksum = 0;
+	Aeron_LogInfo("xvt.network", "world state applied at tick %d", g_serverTickTime);
 	g_resync.phase = RESYNC_REPLAY;
 	return 1;
 }

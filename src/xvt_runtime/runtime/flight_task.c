@@ -1,5 +1,6 @@
 #include "xvt_runtime/config/config.h"
 #include "xvt_runtime/runtime/flight_checkpoint.h"
+#include "xvt_runtime/runtime/flight_diag.h"
 #include "xvt_runtime/runtime/flight_internal.h"
 #include "xvt_runtime/runtime/flight_messages.h"
 #include "xvt_runtime/runtime/flight_network.h"
@@ -53,6 +54,7 @@ int XvtFlightTask_Begin(const char* command) {
 	snprintf(g_flight.command, sizeof(g_flight.command), "%s", command);
 	g_flight.phase = XVT_FLIGHT_PREPARE;
 	XvtFlightSim_Reset();
+	XvtFlightDiag_Begin();
 	Aeron_LogInfo("xvt.flight", "launch started");
 	return 1;
 }
@@ -159,6 +161,7 @@ static int XvtFlightTask_StartWorld(void) {
 void XvtFlightTask_Tick(void) {
 	XvtFlightPhase previous = g_flight.phase;
 	if (XvtNetworkSession_IsLost() && g_flight.phase < XVT_FLIGHT_CLEANUP) {
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_SESSION_LOST, NetSession_GetHostDplayId());
 		XvtResync_Reset();
 		g_flight.result = 0;
 		g_flight.phase = XVT_FLIGHT_CLEANUP;
@@ -255,6 +258,7 @@ void XvtFlightTask_Tick(void) {
 				break;
 			if (status) {
 				XvtFlightFrame_Begin();
+				XvtFlightDiag_LogStart();
 				g_flight.phase = XVT_FLIGHT_FRAMES;
 			} else
 				g_flight.phase = XVT_FLIGHT_CLEANUP;
@@ -284,6 +288,8 @@ void XvtFlightTask_Tick(void) {
 	}
 	if (previous != g_flight.phase)
 		Aeron_LogInfo("xvt.flight", "phase %d -> %d", previous, g_flight.phase);
+	if (previous < XVT_FLIGHT_CLEANUP && g_flight.phase == XVT_FLIGHT_CLEANUP)
+		XvtFlightDiag_LogEnd(previous);
 }
 
 int XvtFlightTask_IsActive(void) {

@@ -5,6 +5,7 @@
 #endif
 #ifdef XVT_MODERN
 #include "xvt_runtime/assets/opt_native.h"
+#include "xvt_runtime/runtime/flight_diag.h"
 #endif
 
 #include "xvt/assets/model_mesh.h"
@@ -2729,6 +2730,10 @@ int16_t collide_damagecraft(uint16_t victimObjIdx, int16_t hitMeshIndex, uint16_
 		if (g_objectTable[victimObjIdx].playerOwnerIdx != -1)
 			Player_SaveCraftSettings(g_objectTable[victimObjIdx].playerOwnerIdx);
 		if (g_flightMissionState.provingGroundsModeActive != 0) {
+#ifdef XVT_MODERN
+			if (g_objectTable[victimObjIdx].playerOwnerIdx == g_localPlayer)
+				XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_PROVING_GROUNDS, g_localPlayer);
+#endif
 			if (g_objectTable[victimObjIdx].playerOwnerIdx == g_localPlayer)
 				g_flightMissionState.missionEndPending = 1;
 		} else if (g_objectTable[victimObjIdx].playerOwnerIdx != -1) {

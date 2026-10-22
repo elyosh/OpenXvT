@@ -5,6 +5,7 @@
 #include "xvt/net/flight_sync.h"
 #include "xvt/util/game_rand.h"
 #include "xvt_runtime/runtime/flight_checkpoint.h"
+#include "xvt_runtime/runtime/flight_diag.h"
 #include "xvt_runtime/runtime/flight_wire.h"
 #include "xvt_runtime/snapshot/records.h"
 #include "xvt_runtime/timing/flight_timing.h"
@@ -1116,8 +1117,10 @@ void XvtSnapshot_Save(void) {
 }
 
 void XvtSnapshot_Restore(void) {
-	if (!XvtSnapshot_Decode(g_worldStateBuffer, g_worldStateSize))
+	if (!XvtSnapshot_Decode(g_worldStateBuffer, g_worldStateSize)) {
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_SNAPSHOT_RESTORE, (int)g_worldStateSize);
 		g_flightMissionState.missionEndPending = 1;
+	}
 }
 
 int XvtSnapshot_ChecksumImage(const uint8_t* image, size_t size,
@@ -1139,6 +1142,8 @@ void XvtSnapshot_Checksum(int unusedArg0, int unusedArg1) {
 	(void)unusedArg0;
 	(void)unusedArg1;
 	if (!XvtSnapshot_ChecksumImage(g_worldStateBuffer, g_worldStateSize, g_worldChecksum,
-								   g_peerChecksumRegionLengths))
+								   g_peerChecksumRegionLengths)) {
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_SNAPSHOT_CHECKSUM, (int)g_worldStateSize);
 		g_flightMissionState.missionEndPending = 1;
+	}
 }

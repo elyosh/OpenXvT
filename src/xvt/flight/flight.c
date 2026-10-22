@@ -4,6 +4,7 @@
 #include "xvt_runtime/timing/flight_timing.h"
 #endif
 #ifdef XVT_MODERN
+#include "xvt_runtime/runtime/flight_diag.h"
 #include "xvt_runtime/runtime/flight_sim.h"
 #include "xvt_runtime/runtime/port.h"
 #include "xvt_runtime/snapshot/world_state.h"
@@ -527,6 +528,9 @@ void Flight_UpdateTimers(void) {
 			g_missionCountdownClock.seconds == 0 && g_flightSimSideEffectsSuppressed == 0) {
 			for (playerIndex = 0; playerIndex < 8; ++playerIndex)
 				g_players[playerIndex].connectedFlag = 2;
+#ifdef XVT_MODERN
+			XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_TIME_LIMIT, g_flightMissionState.missionTimeLimitMinutes);
+#endif
 			g_flightMissionState.missionEndPending = 1;
 		}
 	}
@@ -2905,9 +2909,15 @@ int Flight_RecountPlayersAndCheckMissionEnd(void) {
 	}
 
 	if (connectedCount == 0) {
+#ifdef XVT_MODERN
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_NO_FLYING_PLAYERS, connectedOrPendingCount);
+#endif
 		g_flightMissionState.missionEndPending = 1;
 	}
 	if (g_players[g_localPlayer].connectedFlag == 0) {
+#ifdef XVT_MODERN
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_LOCAL_DISCONNECTED, g_localPlayer);
+#endif
 		g_flightMissionState.missionEndPending = 1;
 	}
 	return g_flightMissionState.missionEndPending;
@@ -4108,6 +4118,9 @@ void Flight_ProcessPlayerActions(int playerIdx) {
 			case FLIGHT_KEY_ALT_E:
 				if (g_flightSimSideEffectsSuppressed == 0) {
 					if (g_flightMissionState.provingGroundsModeActive != 0) {
+#ifdef XVT_MODERN
+						XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_PROVING_GROUNDS, playerIdx);
+#endif
 						g_flightMissionState.missionEndPending = 1;
 						g_players[playerIdx].connectedFlag = 2;
 					} else {
@@ -4493,6 +4506,10 @@ void Flight_ProcessPlayerActions(int playerIdx) {
 												   [(uint16_t)g_players[playerIdx].playerIff] -= 2000;
 								}
 							} else {
+#ifdef XVT_MODERN
+								if (playerIdx == g_localPlayer)
+									XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_LOCAL_LEFT, playerIdx);
+#endif
 								if (playerIdx == g_localPlayer)
 									g_flightMissionState.missionEndPending = 1;
 								g_players[playerIdx].connectedFlag = 0;

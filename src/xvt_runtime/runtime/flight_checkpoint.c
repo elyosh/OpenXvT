@@ -1,4 +1,5 @@
 #include "xvt_runtime/runtime/flight_checkpoint.h"
+#include "aeron/aeron.h"
 #include "xvt/flight/craft.h"
 #include "xvt/flight/flight.h"
 #include "xvt/flight/player/player.h"
@@ -36,7 +37,11 @@ uint8_t XvtFlightCheckpoint_InitialMask(void) { return g_membership.initial; }
 uint8_t XvtFlightCheckpoint_ConfirmedMask(void) { return g_membership.confirmed; }
 
 void XvtFlightCheckpoint_SetMask(uint8_t mask) {
-	g_membership.confirmed = mask & g_membership.initial;
+	uint8_t confirmed = mask & g_membership.initial;
+	if (confirmed != g_membership.confirmed)
+		Aeron_LogInfo("xvt.network", "confirmed players %02x -> %02x (mission players %02x)",
+					  g_membership.confirmed, confirmed, g_membership.initial);
+	g_membership.confirmed = confirmed;
 	for (unsigned player = 0; player < XVT_FLIGHT_PLAYERS; ++player)
 		g_playerAbortFlags[player] =
 			(g_membership.initial & (1u << player)) && !(g_membership.confirmed & (1u << player));

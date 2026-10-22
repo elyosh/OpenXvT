@@ -1,4 +1,7 @@
 #include "xvt/net/net_reliable.h"
+#ifdef XVT_MODERN
+#include "aeron/aeron.h"
+#endif
 
 #include "xvt/net/net_session.h"
 #include "xvt/util/time.h"
@@ -239,6 +242,9 @@ int NetReliable_CompactLocalReceiveQueue(void) {
 	DPID directPlayId;
 	NetQueuedPacket* sourcePacket;
 	NetReliablePeerSlot* peer;
+#ifdef XVT_MODERN
+	unsigned int queuedCount = g_netRecvQueueCount;
+#endif
 
 	dstIndex = (unsigned int)g_netRecvQueueReadIndex;
 	srcIndex = (unsigned int)g_netRecvQueueReadIndex;
@@ -261,6 +267,11 @@ int NetReliable_CompactLocalReceiveQueue(void) {
 	}
 
 	g_netRecvQueueCount = keptCount;
+#ifdef XVT_MODERN
+	Aeron_LogWarn("xvt.net",
+				  "receive queue compacted: kept %u host/system packets, discarded %u from other peers",
+				  keptCount, queuedCount - keptCount);
+#endif
 	g_netRecvQueueWriteIndex = (int)dstIndex;
 	slot = 0;
 	if (g_netSession.reliablePeerSlotCount != 0) {

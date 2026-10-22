@@ -1,11 +1,14 @@
 #include "xvt_runtime/runtime/flight_network.h"
 #include "xvt_runtime/input/flight_controls.h"
 #include "xvt_runtime/runtime/flight_checkpoint.h"
+#include "xvt_runtime/runtime/flight_diag.h"
 #include "xvt_runtime/runtime/flight_internal.h"
 #include "xvt_runtime/runtime/flight_messages.h"
 #include "xvt_runtime/runtime/network_session.h"
 #include "xvt_runtime/runtime/resync_task.h"
 #include "xvt_runtime/timing/host_clock.h"
+#include <stdarg.h>
+#include <stdio.h>
 
 typedef struct XvtFlightTauntsWire {
 	XvtFlightSlotWire header;
@@ -581,7 +584,11 @@ static int XvtFlightNetwork_RecordInput(unsigned player, int tick, const FlightI
 										int authoritative) {
 	XvtInputInsertStatus result = XvtFlightHistory_InsertReal(player, tick, input, authoritative);
 	if (result == XVT_INPUT_FULL || result == XVT_INPUT_INVALID || result == XVT_INPUT_CONFLICT) {
-		XvtFlightNetwork_RequestRecovery();
+		XvtFlightNetwork_RequestRecovery("%s %s input for player %u at tick %d",
+										 result == XVT_INPUT_FULL      ? "no room for"
+										 : result == XVT_INPUT_INVALID ? "invalid"
+																	   : "conflicting",
+										 authoritative ? "authoritative" : "peer", player, tick);
 		return 0;
 	}
 	return 1;
@@ -589,9 +596,16 @@ static int XvtFlightNetwork_RecordInput(unsigned player, int tick, const FlightI
 
 int XvtFlightNetwork_NeedsRecovery(void) { return g_io.recovery; }
 
-void XvtFlightNetwork_RequestRecovery(void) {
-	if (!g_io.recovery)
-		Aeron_LogWarn("xvt.network", "flight history/message capacity or continuity requires state recovery");
+void XvtFlightNetwork_RequestRecovery(const char* cause, ...) {
+	if (!g_io.recovery) {
+		char text[192];
+		va_list args;
+		va_start(args, cause);
+		vsnprintf(text, sizeof text, cause, args);
+		va_end(args);
+		Aeron_LogWarn("xvt.network", "state recovery requested (%s): %s",
+					  NetSession_GetLocalPlayerId() ? "host, ends the mission for everyone" : "client", text);
+	}
 	g_io.recovery = 1;
 }
 
@@ -661,7 +675,7 @@ int XvtFlightNetwork_AdmitInput(int tick) {
 		if (g_inputHistory[g_localPlayer][i].timestamp == tick)
 			return 1;
 	if (g_inputFrameCount[g_localPlayer] >= XVT_INPUT_HISTORY_CAPACITY) {
-		XvtFlightNetwork_RequestRecovery();
+		XvtFlightNetwork_RequestRecovery("local input history full at tick %d", tick);
 		return 0;
 	}
 	if (!g_io.sampled) {
@@ -701,11 +715,13 @@ void XvtFlightNetwork_SendWorld(void) {
 	XvtFlightMessage* message = &g_io.outgoing;
 	memset(message, 0, sizeof *message);
 	if (g_flightNetLastSentWorldMessageTimestamp > INT32_MAX - XVT_WORLD_MESSAGE_TICKS - 1) {
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_TICK_LIMIT, g_flightNetLastSentWorldMessageTimestamp);
 		g_flightMissionState.missionEndPending = 1;
 		return;
 	}
 	int tick = g_flightNetLastSentWorldMessageTimestamp + XVT_WORLD_MESSAGE_TICKS;
 	if (!XvtFlightWire_ValidTick((unsigned)tick)) {
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_TICK_LIMIT, tick);
 		g_flightMissionState.missionEndPending = 1;
 		return;
 	}
@@ -733,7 +749,7 @@ void XvtFlightNetwork_SendWorld(void) {
 		memset(g_flightNetWorldChecksumPeerStatus, 0, sizeof g_flightNetWorldChecksumPeerStatus);
 	}
 	if (!XvtFlightMessages_Enqueue(message, XVT_QUEUE_PENDING)) {
-		XvtFlightNetwork_RequestRecovery();
+		XvtFlightNetwork_RequestRecovery("pending world message queue full at tick %d", tick);
 		return;
 	}
 	for (unsigned player = 0; player < XVT_FLIGHT_PLAYERS; ++player)
@@ -750,6 +766,10 @@ void XvtFlightNetwork_SendWorld(void) {
 			continue;
 		g_flightNetPeerSilenceTicks[player] += XVT_WORLD_MESSAGE_TICKS;
 		if (g_flightNetPeerSilenceTicks[player] > XVT_PEER_TIMEOUT_TICKS) {
+			const char* name = NetSession_GetPlayerName((int)player);
+			Aeron_LogWarn("xvt.network", "removing player %u (dpid %d '%s'): no valid input for %d ms",
+						  player, g_players[player].network.directPlayId, name ? name : "?",
+						  g_flightNetPeerSilenceTicks[player] * (XVT_FLIGHT_TICK_US / 1000));
 			FlightNet_BroadcastPlayerAbort(player);
 			g_io.departures |= 1u << player;
 		}
@@ -777,11 +797,18 @@ int XvtFlightNetwork_Receive(int sender, const uint8_t* bytes, size_t size) {
 	if (opcode == NET_PACKET_INPUT_BATCH) {
 		int player = NetSession_FindPlayerSlotByDpid(sender);
 		if ((unsigned)player >= XVT_FLIGHT_PLAYERS || player == g_localPlayer ||
-			!g_players[player].connectedFlag ||
-			!XvtFlightMessages_DecodeBatch(bytes, size, XvtFlightNetwork_Cookie()))
+			!XvtFlightMessages_DecodeBatch(bytes, size, XvtFlightNetwork_Cookie())) {
+			XvtFlightDiag_CountDrop(XVT_FLIGHT_DROP_INVALID_BATCH, sender);
 			return 1;
-		if (XvtResync_HoldsInput())
+		}
+		if (!g_players[player].connectedFlag) {
+			XvtFlightDiag_CountDrop(XVT_FLIGHT_DROP_INACTIVE_BATCH, sender);
 			return 1;
+		}
+		if (XvtResync_HoldsInput()) {
+			XvtFlightDiag_CountDrop(XVT_FLIGHT_DROP_RECOVERY_BATCH, sender);
+			return 1;
+		}
 		FlightSync_DiscardPredictedInputFrames(player);
 		g_flightNetPeerSilenceTicks[player] = 0;
 		XvtFlightBatchHeader header;
@@ -800,19 +827,23 @@ int XvtFlightNetwork_Receive(int sender, const uint8_t* bytes, size_t size) {
 	}
 	if (opcode != NET_PACKET_WORLD_MESSAGE)
 		return opcode == NET_PACKET_REMOTE_INPUT;
-	if (sender != NetSession_GetHostDplayId())
+	if (sender != NetSession_GetHostDplayId()) {
+		XvtFlightDiag_CountDrop(XVT_FLIGHT_DROP_FOREIGN_WORLD, sender);
 		return 1;
+	}
 	static XvtFlightMessage message;
 	int result = XvtFlightMessages_ReceivePart(bytes, size, XvtFlightNetwork_Cookie(),
 											   XvtResync_ReceiveFloor(), &message);
 	if (result < 0)
-		XvtFlightNetwork_RequestRecovery();
+		XvtFlightNetwork_RequestRecovery("invalid or incomplete world message part from the host");
 	if (result == 1) {
 		if ((message.mask & ~XvtFlightCheckpoint_InitialMask()) ||
 			!XvtFlightMessages_Enqueue(&message, XvtResync_IsActive() && !NetSession_GetLocalPlayerId()
 													 ? XVT_QUEUE_REPLAY
 													 : XVT_QUEUE_PENDING))
-			XvtFlightNetwork_RequestRecovery();
+			XvtFlightNetwork_RequestRecovery(
+				"world message for players %02x (mission players %02x) not queued", message.mask,
+				XvtFlightCheckpoint_InitialMask());
 		else {
 			g_flightNetHostTimeoutElapsedMs = 0;
 			++g_flightNetReceivedWorldMessageCount;

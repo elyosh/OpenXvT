@@ -6,6 +6,7 @@
 #endif
 #ifdef XVT_MODERN
 #include "xvt_runtime/input/flight_controls.h"
+#include "xvt_runtime/runtime/flight_diag.h"
 #endif
 #include "xvt/assets/model_mesh.h"
 #include "xvt/assets/opt_model.h"
@@ -2278,6 +2279,9 @@ void Player_EndFlightParticipation(int playerIdx) {
 		if (g_players[playerIndex].connectedFlag == PLAYER_CONNECTED)
 			++activePlayerCount;
 	}
+#ifdef XVT_MODERN
+	XvtFlightDiag_PlayerFinished(playerIdx, activePlayerCount);
+#endif
 	if (activePlayerCount != 0) {
 		g_players[playerIdx].mapCameraState = UINT8_MAX;
 		Hud_SetHudViewState(HUD_VIEW_CRAFT_LIST, playerIdx);
@@ -2306,6 +2310,9 @@ void Player_EndFlightParticipation(int playerIdx) {
 		fsfx_UpdateChaffLoop();
 		fsfx_UpdateBeamEffectLoops();
 	} else {
+#ifdef XVT_MODERN
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_LAST_PLAYER_FINISHED, playerIdx);
+#endif
 		g_flightMissionState.missionEndPending = 1;
 	}
 }
@@ -2478,9 +2485,16 @@ void Player_UpdateParticipationState(void) {
 			if (g_playerAbortFlags[playerIdx] != 0 && g_players[playerIdx].connectedFlag != 0) {
 				if (g_players[playerIdx].objectIndex != -1)
 					Player_UnbindFromCurrentCraft((int)playerIdx, 0, 1);
+#ifdef XVT_MODERN
+				if (g_localPlayer == (int)playerIdx)
+					XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_LOCAL_DEPARTED, (int)playerIdx);
+#endif
 				if (g_localPlayer == (int)playerIdx)
 					g_flightMissionState.missionEndPending = 1;
 				g_players[playerIdx].connectedFlag = 0;
+#ifdef XVT_MODERN
+				XvtFlightDiag_PlayerRemoved((int)playerIdx);
+#endif
 				Flight_UpdateActivePlayerCount();
 				if (NetSession_GetHostDplayId() != g_players[playerIdx].network.directPlayId)
 					FlightNet_MarkPilotNetworkPlayerLeft((int)playerIdx);
@@ -2584,6 +2598,9 @@ void Player_HandleHyperspaceCommand(struct CraftData* craft, unsigned int player
 	if (g_flightSimSideEffectsSuppressed == 0) {
 		if ((craft->systemFlags & CRAFT_SUBSYSTEM_FLAG_HYPERDRIVE) != 0) {
 			if (g_flightMissionState.provingGroundsModeActive != 0) {
+#ifdef XVT_MODERN
+				XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_PROVING_GROUNDS, playerIdx);
+#endif
 				g_flightMissionState.missionEndPending = 1;
 				g_players[playerIdx].connectedFlag = PLAYER_CONNECTED_PENDING_DEPARTURE;
 			} else if ((craft->workingSubsystems & CRAFT_SUBSYSTEM_FLAG_HYPERDRIVE) != 0) {

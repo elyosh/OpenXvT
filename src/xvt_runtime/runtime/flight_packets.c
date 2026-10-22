@@ -1,3 +1,4 @@
+#include "xvt_runtime/runtime/flight_diag.h"
 #include "xvt_runtime/runtime/flight_internal.h"
 #include "xvt_runtime/runtime/flight_network.h"
 #include "xvt_runtime/runtime/resync_task.h"
@@ -38,6 +39,9 @@ static int XvtFlightNetwork_Control(int senderDpid, int* packet) {
 				XvtResync_DeferChecksum(senderDpid, packet);
 			return 0;
 		case NET_PACKET_SESSION_ABORT:
+			Aeron_LogWarn("xvt.network", "mission abort received from dpid %d%s", senderDpid,
+						  senderDpid == NetSession_GetHostDplayId() ? " (host)" : " (not the host)");
+			XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_HOST_ABORT, senderDpid);
 			g_flightNetHostAbortReceived = 1;
 			g_flightMissionState.missionEndPending = 1;
 			g_players[g_localPlayer].connectedFlag = 0;
@@ -58,8 +62,11 @@ static int XvtFlightNetwork_Control(int senderDpid, int* packet) {
 				((unsigned)playerIndex >= XVT_FLIGHT_PLAYERS ||
 				 g_players[playerIndex].network.directPlayId != senderDpid))
 				return 0;
-			if (XvtFlightNetwork_PlayerAbort((unsigned)playerIndex))
+			if (XvtFlightNetwork_PlayerAbort((unsigned)playerIndex)) {
+				Aeron_LogInfo("xvt.network", "player %d removed from the mission by dpid %d", playerIndex,
+							  senderDpid);
 				return 0;
+			}
 
 			if (playerIndex >= 0 && playerIndex < PLAYER_COUNT) {
 				g_playerAbortFlags[playerIndex] = 1;
@@ -67,6 +74,7 @@ static int XvtFlightNetwork_Control(int senderDpid, int* packet) {
 			if (playerIndex != g_localPlayer) {
 				return 0;
 			}
+			XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_KICKED, senderDpid);
 			g_flightMissionState.missionEndPending = 1;
 			g_players[g_localPlayer].connectedFlag = 0;
 			g_playerAbortFlags[g_localPlayer] = 1;
@@ -174,9 +182,14 @@ void XvtFlightNetwork_ProcessPackets(void) {
 			currentTimestamp += (int)Time_GetFrameDelta();
 			continue;
 		}
-		if (!XvtFlightNetwork_DecodeControl((const uint8_t*)packet, &size) ||
-			(unsigned)NetSession_FindPlayerSlotByDpid(sender) >= XVT_FLIGHT_PLAYERS)
+		if (!XvtFlightNetwork_DecodeControl((const uint8_t*)packet, &size)) {
+			XvtFlightDiag_CountDrop(XVT_FLIGHT_DROP_INVALID_CONTROL, sender);
 			continue;
+		}
+		if ((unsigned)NetSession_FindPlayerSlotByDpid(sender) >= XVT_FLIGHT_PLAYERS) {
+			XvtFlightDiag_CountDrop(XVT_FLIGHT_DROP_UNKNOWN_SENDER, sender);
+			continue;
+		}
 		if (XvtFlightNetwork_Receive(sender, (const uint8_t*)packet, size) ||
 			XvtResync_ReceivePacket(sender, (const uint8_t*)packet, size))
 			continue;

@@ -1,5 +1,6 @@
 #include "xvt/net/flight_sync.h"
 #ifdef XVT_MODERN
+#include "aeron/aeron.h"
 #include "xvt_runtime/input/flight_controls.h"
 #include "xvt_runtime/runtime/flight_messages.h"
 #include "xvt_runtime/runtime/flight_network.h"
@@ -170,7 +171,7 @@ InputFrame* FlightSync_InsertInputFrame(int playerIdx, int timestamp, const Flig
 	InputFrame* inserted;
 	XvtInputInsertStatus status = XvtFlightHistory_Insert((unsigned)playerIdx, timestamp, input, &inserted);
 	if (status == XVT_INPUT_FULL && XvtFlightTiming_IsNetwork125())
-		XvtFlightNetwork_RequestRecovery();
+		XvtFlightNetwork_RequestRecovery("input history full for player %d at tick %d", playerIdx, timestamp);
 	return inserted;
 #else
 
@@ -667,6 +668,7 @@ void FlightSync_HandleWorldChecksumPacket(int senderDpid, const int* packet) {
 	if ((unsigned)packet[34] > 1)
 		return;
 	if (packet[34] == 1 && NetSession_GetLocalPlayerId() && senderPlayerIndex != g_localPlayer) {
+		Aeron_LogInfo("xvt.network", "player %d requested the world state", senderPlayerIndex);
 		XvtResync_BeginSend(senderDpid, g_worldStateBuffer, g_worldStateSize);
 		return;
 	}
@@ -693,6 +695,18 @@ void FlightSync_HandleWorldChecksumPacket(int senderDpid, const int* packet) {
 
 		if (checksumMismatch != 0) {
 #ifdef XVT_MODERN
+			{
+				unsigned regions = 0;
+				int region;
+
+				for (region = 0; region < CHECKSUM_REGION_COUNT; ++region)
+					if (g_worldChecksum[region] != (unsigned int)remoteChecksums[region])
+						regions |= 1u << region;
+				Aeron_LogWarn("xvt.network",
+							  "world checksum mismatch with player %d at tick %u (regions %04x); resending "
+							  "the world state",
+							  senderPlayerIndex, g_flightNetWorldChecksumEpoch, regions);
+			}
 			XvtResync_BeginSend(senderDpid, g_worldStateDupBuffer, worldStateSize);
 			return;
 #else

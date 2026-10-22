@@ -15,7 +15,8 @@ void XvtFlightNetwork_ProcessPackets(void);
 void XvtFlightNetwork_BeginClockProbes(void);
 int XvtFlightNetwork_ShouldSend(int inputTimestamp);
 int XvtFlightNetwork_NeedsRecovery(void);
-void XvtFlightNetwork_RequestRecovery(void);
+/* Requests state recovery; the cause is logged when recovery is first requested. */
+void XvtFlightNetwork_RequestRecovery(const char* cause, ...);
 int XvtFlightNetwork_PlayerAbort(unsigned player);
 void XvtFlightNetwork_BeginRecovery(void);
 void XvtFlightNetwork_Recovered(void);

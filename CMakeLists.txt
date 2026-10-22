@@ -219,6 +219,7 @@ set(XVT_RUNTIME_SOURCES
     src/xvt_runtime/runtime/frontend_actions.c
     src/xvt_runtime/runtime/launch_task.c
     src/xvt_runtime/runtime/flight_task.c
+    src/xvt_runtime/runtime/flight_diag.c
     src/xvt_runtime/runtime/flight_checkpoint.c
     src/xvt_runtime/runtime/flight_wire.c
     src/xvt_runtime/runtime/flight_messages.c

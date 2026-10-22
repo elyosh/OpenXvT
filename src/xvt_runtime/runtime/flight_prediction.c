@@ -36,7 +36,7 @@ static int QueuePlayer(unsigned player, int tick) {
 	}
 	int count = g_inputFrameCount[player];
 	if (count < 0 || count > XVT_INPUT_HISTORY_CAPACITY) {
-		XvtFlightNetwork_RequestRecovery();
+		XvtFlightNetwork_RequestRecovery("input history count %d invalid for player %d", count, player);
 		return 0;
 	}
 	for (int i = 0; i < count; ++i) {
@@ -66,7 +66,7 @@ static int QueuePlayer(unsigned player, int tick) {
 	InputFrame* inserted;
 	XvtInputInsertStatus status = XvtFlightHistory_Insert(player, tick, &input, &inserted);
 	if (status == XVT_INPUT_FULL || status == XVT_INPUT_INVALID) {
-		XvtFlightNetwork_RequestRecovery();
+		XvtFlightNetwork_RequestRecovery("predicted input for player %d at tick %d rejected", player, tick);
 		return 0;
 	}
 	if (inserted) {

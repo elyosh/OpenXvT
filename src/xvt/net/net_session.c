@@ -1,5 +1,6 @@
 #include "xvt/net/net_session.h"
 #ifdef XVT_MODERN
+#include "aeron/aeron.h"
 #include "xvt/net/frontend_net.h"
 #include "xvt_runtime/runtime/flight_network.h"
 #include "xvt_runtime/runtime/network_session.h"
@@ -52,7 +53,46 @@ uint8_t g_netSessionFlightHandshakeActive = 0;
 
 // FLAGS: /O2 /G5
 // FUNCTION: XVT 0x46C220
-void NetSession_DebugTrace(const char* message) { (void)message; }
+void NetSession_DebugTrace(const char* message) {
+#ifdef XVT_MODERN
+	/* The original discards these reliability-layer traces. The ones signalling
+	 * lost or overflowing packets are logged, each at most once per second. */
+	static const struct {
+		const char* trace;
+		const char* text;
+	} k_traces[] = {
+		{ "Ran out of receive buffers!!!",
+		  "receive queue full; discarding queued packets not from the host" },
+		{ "(RTO) ", "reliable packet overdue; requesting a resend" },
+		{ "(TMR) ", "reliable packet resent too often; skipping the gap" },
+		{ "(NMR) ", "receive queue full; delivering a reliable packet out of order" },
+	};
+
+	static uint64_t lastUs[sizeof k_traces / sizeof k_traces[0]];
+	static unsigned suppressed[sizeof k_traces / sizeof k_traces[0]];
+	unsigned i;
+	uint64_t now;
+
+	for (i = 0; i < sizeof k_traces / sizeof k_traces[0]; ++i)
+		if (!strcmp(message, k_traces[i].trace))
+			break;
+	if (i == sizeof k_traces / sizeof k_traces[0])
+		return;
+	now = Aeron_NowUs();
+	if (lastUs[i] && now - lastUs[i] < 1000000) {
+		++suppressed[i];
+		return;
+	}
+	if (suppressed[i])
+		Aeron_LogWarn("xvt.net", "%s (%u more in the last second)", k_traces[i].text, suppressed[i]);
+	else
+		Aeron_LogWarn("xvt.net", "%s", k_traces[i].text);
+	lastUs[i] = now;
+	suppressed[i] = 0;
+#else
+	(void)message;
+#endif
+}
 
 // FUNCTION: XVT 0x46C230
 int NetSession_InitGameSession(const char* sessionName, const char* pilotName, int localId,
@@ -1089,6 +1129,9 @@ int NetSession_HandleHandshakePacket(int packetOpcode, int* packet) {
 
 		case DPSYS_DESTROYPLAYERORGROUP:
 #ifdef XVT_MODERN
+			Aeron_LogInfo("xvt.net", "DirectPlay %s %d destroyed%s",
+						  packet[1] == DPPLAYERTYPE_PLAYER ? "player" : "group", packet[2],
+						  packet[2] == g_netSession.hostDplayId ? " (host)" : "");
 			if (packet[1] == DPPLAYERTYPE_PLAYER && packet[2] == g_netSession.hostDplayId)
 				XvtNetworkSession_HostLost();
 #endif

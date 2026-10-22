@@ -1,5 +1,6 @@
 #include "xvt_runtime/input/flight_controls.h"
 #include "xvt_runtime/runtime/flight_checkpoint.h"
+#include "xvt_runtime/runtime/flight_diag.h"
 #include "xvt_runtime/runtime/flight_internal.h"
 #include "xvt_runtime/runtime/flight_messages.h"
 #include "xvt_runtime/runtime/flight_network.h"
@@ -428,12 +429,13 @@ static XvtFlightReplayResult XvtFlightFrame_Confirm(XvtFlightQueue queue) {
 		if (target <= g_serverTickTime)
 			return XVT_REPLAY_ADVANCED;
 		if (target - g_serverTickTime != XVT_WORLD_MESSAGE_TICKS) {
-			XvtFlightNetwork_RequestRecovery();
+			XvtFlightNetwork_RequestRecovery("world message for tick %d does not follow confirmed tick %d",
+											 target, g_serverTickTime);
 			return XVT_REPLAY_PENDING;
 		}
 		if (queue == XVT_QUEUE_PENDING && g_flightNetBufferWorldMessagesUntilChecksum &&
 			!XvtFlightMessages_Enqueue(&g_confirm.message, XVT_QUEUE_REPLAY)) {
-			XvtFlightNetwork_RequestRecovery();
+			XvtFlightNetwork_RequestRecovery("replay storage full at tick %d", target);
 			return XVT_REPLAY_PENDING;
 		}
 		if (queue == XVT_QUEUE_PENDING)
@@ -535,6 +537,7 @@ static int XvtFlightFrame_NetworkStep(void) {
 	if (!g_confirm.suspended && !g_confirm.predicted_suspended) {
 		int elapsed = Time_GetFrameDelta();
 		if ((int64_t)g_inputTimestamp + elapsed >= INT32_MAX - 258) {
+			XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_TICK_LIMIT, g_inputTimestamp);
 			FlightNet_BroadcastLocalPlayerLeft();
 			return 1;
 		}
@@ -542,6 +545,7 @@ static int XvtFlightFrame_NetworkStep(void) {
 		if (!NetSession_GetLocalPlayerId())
 			g_flightNetHostTimeoutElapsedMs += elapsed;
 		if (g_flightNetHostTimeoutElapsedMs > HOST_TIMEOUT_TICKS) {
+			XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_HOST_TIMEOUT, g_flightNetHostTimeoutElapsedMs);
 			FlightNet_BroadcastPlayerAbort(g_localPlayer);
 			return 1;
 		}
@@ -595,6 +599,7 @@ static int XvtFlightFrame_NetworkStep(void) {
 	else
 		g_stats.clock_down += g_flightNetClockAdjustAccumTicks - clockBefore;
 	if (g_inputTimestamp >= INT32_MAX - 258) {
+		XvtFlightDiag_NoteEnd(XVT_FLIGHT_END_TICK_LIMIT, g_inputTimestamp);
 		FlightNet_BroadcastLocalPlayerLeft();
 		return 1;
 	}
