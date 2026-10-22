@@ -10,6 +10,7 @@
 #include "xvt_remaster/xvt_remaster.h"
 #include "xvt_runtime/config/config.h"
 #include "xvt_runtime/input/capture.h"
+#include "xvt_runtime/input/input_bridge.h"
 #include "xvt_runtime/input/controller_mapping.h"
 #include "xvt_runtime/input/keyboard_mapping.h"
 #include "xvt_runtime/runtime/port.h"
@@ -121,6 +122,7 @@ int XvtApplication_Run(const XvtLaunchOptions* options) {
 		Aeron_Shutdown();
 		return 1;
 	}
+	XvtInput_SyncScreenKeyboard();
 	XvtStorage_Bind(Aeron_GetVfs());
 	XvtIosScreen_Fill();
 	XvtSetupResult setup_result = XvtSetup_Run(options, &ui, error, sizeof error);

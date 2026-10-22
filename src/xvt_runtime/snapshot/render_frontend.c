@@ -1,6 +1,7 @@
 #include "xvt_runtime/snapshot/render_frontend.h"
 
 #include "xvt/frontend/front_image.h"
+#include "xvt/frontend/frontend_mouse.h"
 #include "xvt/frontend/frontend_state.h"
 #include "xvt_runtime/runtime/dialog_task.h"
 #include "xvt_runtime/runtime/flight_task.h"
@@ -15,6 +16,9 @@ static uint64_t g_serial, g_generation;
 static XvtSceneKind g_presentedScene;
 static unsigned g_presentedTarget;
 static int g_textEntry;
+static int g_textFieldSelected;
+static int g_textFieldHit;
+static int g_textFieldClick;
 static int g_cursorDrawing, g_cursorVisible;
 static int g_surfacesReleased;
 static XvtSnapSprite g_cursorSprite;
@@ -66,11 +70,20 @@ static int FindFontGlyph(unsigned slot, const ImageResource* glyph) {
 	return -1;
 }
 
-void XvtRenderFrontend_BeginDraw(void) { g_textEntry = 0; }
+void XvtRenderFrontend_BeginDraw(void) {
+	g_textEntry = 0;
+	g_textFieldHit = 0;
+	g_textFieldClick = FrontendMouse_GetLeftClick() || FrontendMouse_GetRightClick();
+}
 
 void XvtRenderFrontend_TextEntry(int field) {
 	if (field == g_activeTextFieldId)
 		g_textEntry = 1;
+}
+
+void XvtRenderFrontend_TextFieldPressed(void) {
+	g_textFieldHit = 1;
+	g_textFieldSelected = 1;
 }
 
 void XvtRenderFrontend_Init(void) {
@@ -80,6 +93,9 @@ void XvtRenderFrontend_Init(void) {
 	g_presentedScene = XVT_SCENE_NONE;
 	g_presentedTarget = XVT_TARGET_FRONT_BACK;
 	g_textEntry = 0;
+	g_textFieldSelected = 0;
+	g_textFieldHit = 0;
+	g_textFieldClick = 0;
 	g_cursorDrawing = g_cursorVisible = 0;
 	g_surfacesReleased = 0;
 	memset(g_fontGlyphs, 0, sizeof g_fontGlyphs);
@@ -365,6 +381,12 @@ void XvtRenderFrontend_Commit(XvtRenderSnapshot* s) {
 	s->frontend_generation = g_generation;
 	s->frontend_surfaces_released = g_surfacesReleased;
 	s->presented_target = g_presentedTarget;
+	/* Field id 0 is both "nothing selected" and the roster name box, so id
+	 * equality is not a tap. A click that misses every box clears the tap. */
+	if (g_textFieldClick && !g_textFieldHit)
+		g_textFieldSelected = 0;
+	g_textFieldClick = 0;
 	s->text_entry_active =
 		(s->scene_kind == XVT_SCENE_FRONTEND || s->scene_kind == XVT_SCENE_FRONTEND_MODAL) && g_textEntry;
+	s->text_field_selected = s->text_entry_active && g_textFieldSelected;
 }

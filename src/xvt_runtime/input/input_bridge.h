@@ -13,6 +13,8 @@ typedef enum XvtKeyboardRoute {
 
 XvtKeyboardRoute XvtInput_ReconcileKeyboard(void);
 void XvtInput_Init(void);
+/* Screen-keyboard platforms only. Desktop text input stays as Aeron started it. */
+void XvtInput_SyncScreenKeyboard(void);
 void XvtInput_Update(int suppress);
 void XvtInput_UpdateFlight(int suppress);
 void XvtInput_Shutdown(void);

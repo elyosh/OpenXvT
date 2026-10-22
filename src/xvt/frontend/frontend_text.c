@@ -79,6 +79,9 @@ int FrontendText_DrawEditableField(RECT* rect, char* text, int maxChars, int fie
 	if (FrontendDraw_PointInRect(rect, mouseX, mouseY) &&
 		(FrontendMouse_GetLeftClick() || FrontendMouse_GetRightClick())) {
 		g_activeTextFieldId = fieldId;
+#ifdef XVT_MODERN
+		XvtRenderFrontend_TextFieldPressed();
+#endif
 	}
 
 #ifdef XVT_MODERN
