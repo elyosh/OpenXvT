@@ -178,6 +178,7 @@ set(XVT_RUNTIME_SOURCES
     src/xvt_runtime/input/keyboard_mapping.c
     src/xvt_runtime/config/keyboard_config.c
     src/xvt_runtime/input/actions.c
+    src/xvt_runtime/input/touch_buttons.c
     src/xvt_runtime/input/controller_options.c
     src/xvt_runtime/input/controller_mapping.c
     src/xvt_runtime/storage/storage.c
@@ -311,6 +312,14 @@ set_target_properties(xvt PROPERTIES
     OUTPUT_NAME "OpenXvT"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<0:>")
 target_link_libraries(xvt PRIVATE xvt_remaster)
+if(IOS)
+    enable_language(OBJC)
+    target_sources(xvt PRIVATE src/xvt_app/installation_picker.m src/xvt_app/duo_pose.m
+                              src/xvt_app/touch_controls.c)
+    set_source_files_properties(src/xvt_app/installation_picker.m src/xvt_app/duo_pose.m
+                                PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    target_link_libraries(xvt PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers")
+endif()
 if(WIN32)
     set_target_properties(xvt PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()

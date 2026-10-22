@@ -227,6 +227,10 @@ static int XvtSettings_ReadDisplay(const AeronConfigFile* document, XvtPresentat
 int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* scene_defaults,
 					  XvtSettings* out, char* error, size_t capacity) {
 	XvtSettings candidate = { 0 };
+	for (int place = 0; place < XVT_TOUCH_PLACE_COUNT; ++place) {
+		candidate.touch_place_x[place] = -1.0f;
+		candidate.touch_place_y[place] = -1.0f;
+	}
 	AeronConfigError detail;
 	static const char* const flight_rates[] = { "native", "unlocked" };
 	static const char* const window_modes[] = { "windowed", "fullscreen" };
@@ -270,6 +274,93 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 		return 0;
 	if (!XvtMouseConfig_Parse(document, &candidate.mouse, error, capacity))
 		return 0;
+	const AeronConfigNode* touch = AeronConfigFile_GetNode(document, "input.touch_controls");
+	if (touch) {
+		const char* value = AeronConfigNode_String(touch, "");
+		if (!strcmp(value, "automatic"))
+			candidate.touch_controls = XVT_TOUCH_CONTROLS_AUTOMATIC;
+		else if (!strcmp(value, "on"))
+			candidate.touch_controls = XVT_TOUCH_CONTROLS_ON;
+		else if (!strcmp(value, "off"))
+			candidate.touch_controls = XVT_TOUCH_CONTROLS_OFF;
+		else
+			return XvtSettings_NodeError(document, "input.touch_controls", "expected automatic, on or off",
+										 error, capacity);
+	}
+	{
+		const AeronConfigNode* transparency = AeronConfigFile_GetNode(document, "input.touch_transparency");
+		if (transparency) {
+			double value = AeronConfigNode_Float(transparency, NAN);
+			if (!isfinite(value) || value < 0.0 || value > 1.0)
+				return XvtSettings_NodeError(document, "input.touch_transparency",
+											 "expected a transparency from 0 to 1", error, capacity);
+			candidate.touch_transparency = (float)value;
+		}
+	}
+	{
+		const AeronConfigNode* buttons = AeronConfigFile_GetNode(document, "input.touch_buttons");
+		if (buttons) {
+			if (AeronConfigNode_Type(buttons) != AERON_CONFIG_MAP)
+				return XvtSettings_NodeError(document, "input.touch_buttons", "expected a button map", error,
+											 capacity);
+			for (size_t i = 0; i < AeronConfigNode_MapCount(buttons); ++i) {
+				const char* key = AeronConfigNode_MapKeyAt(buttons, i);
+				const char* name = AeronConfigNode_String(AeronConfigNode_MapValueAt(buttons, i), "");
+				XvtInputAction action = XvtInputActions_FromName(name);
+				int index = -1;
+				for (int button = 0; button < XVT_TOUCH_BUTTON_COUNT; ++button)
+					if (!strcmp(key, XvtTouchButton_Key(button)))
+						index = button;
+				if (index < 0) {
+					if (XvtTouchControl_Retired(key))
+						continue;
+					return XvtSettings_NodeError(document, "input.touch_buttons", "unknown touch button", error,
+												 capacity);
+				}
+				if (!XvtInputActions_KeyboardBindable(action))
+					return XvtSettings_NodeError(document, "input.touch_buttons",
+												 "expected a bindable command", error, capacity);
+				candidate.touch_button[index] = (int)action;
+			}
+		}
+	}
+	{
+		const AeronConfigNode* layout = AeronConfigFile_GetNode(document, "input.touch_layout");
+		if (layout) {
+			if (AeronConfigNode_Type(layout) != AERON_CONFIG_MAP)
+				return XvtSettings_NodeError(document, "input.touch_layout", "expected a control map", error,
+											 capacity);
+			for (size_t i = 0; i < AeronConfigNode_MapCount(layout); ++i) {
+				const char* key = AeronConfigNode_MapKeyAt(layout, i);
+				const AeronConfigNode* value = AeronConfigNode_MapValueAt(layout, i);
+				const AeronConfigNode* x_node;
+				const AeronConfigNode* y_node;
+				double x, y;
+				int index = -1;
+				for (int place = 0; place < XVT_TOUCH_PLACE_COUNT; ++place)
+					if (!strcmp(key, XvtTouchPlace_Key(place)))
+						index = place;
+				if (index < 0) {
+					if (XvtTouchControl_Retired(key))
+						continue;
+					return XvtSettings_NodeError(document, "input.touch_layout", "unknown touch control", error,
+												 capacity);
+				}
+				if (!value || AeronConfigNode_Type(value) != AERON_CONFIG_MAP)
+					return XvtSettings_NodeError(document, "input.touch_layout", "expected a position", error,
+												 capacity);
+				x_node = AeronConfigNode_MapGet(value, "x");
+				y_node = AeronConfigNode_MapGet(value, "y");
+				x = AeronConfigNode_Float(x_node, NAN);
+				y = AeronConfigNode_Float(y_node, NAN);
+				if (!isfinite(x) || !isfinite(y) || x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0)
+					return XvtSettings_NodeError(document, "input.touch_layout",
+												 "expected a position from 0 to 1", error, capacity);
+				candidate.touch_place_x[index] = (float)x;
+				candidate.touch_place_y[index] = (float)y;
+			}
+		}
+	}
 	*out = candidate;
 	return 1;
 }

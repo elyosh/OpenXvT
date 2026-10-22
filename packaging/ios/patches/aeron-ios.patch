@@ -1,0 +1,451 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 41aa374..0bc74e3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -13,7 +13,21 @@ option(AERON_HOST_TOOLS_ONLY "Build only tools that must run on the build host"
+ option(AERON_ENABLE_COMPAT "Build the Win32/DirectX-era API compatibility target" OFF)
+ option(AERON_ENABLE_DPLAY "Build DirectPlay support in aeron_compat" OFF)
+ 
+-find_package(SDL3 3.4 REQUIRED CONFIG COMPONENTS SDL3-shared)
++# Static iOS builds ship SDL3-static and omit the shared component.
++if(IOS)
++    find_package(SDL3 3.4 REQUIRED CONFIG COMPONENTS SDL3-static)
++    if(TARGET SDL3::SDL3)
++        get_target_property(aeron_sdl3_aliased SDL3::SDL3 ALIASED_TARGET)
++        if(aeron_sdl3_aliased AND NOT aeron_sdl3_aliased STREQUAL "SDL3::SDL3-static")
++            message(FATAL_ERROR
++                "SDL3::SDL3 aliases ${aeron_sdl3_aliased}; iOS must link SDL3::SDL3-static")
++        endif()
++    else()
++        add_library(SDL3::SDL3 ALIAS SDL3::SDL3-static)
++    endif()
++else()
++    find_package(SDL3 3.4 REQUIRED CONFIG COMPONENTS SDL3-shared)
++endif()
+ 
+ set(AERON_YAML_SOURCES
+     third_party/libyaml/src/api.c
+@@ -537,6 +551,37 @@ endif()
+ option(AERON_ENABLE_AUDIO_DECODE "Build the FFmpeg-backed Aeron audio decoder" OFF)
+ option(AERON_ENABLE_VIDEO "Build the FFmpeg-backed Aeron video player" ON)
+ 
++# CMake de-duplicates a repeated bare -framework option and drops every
++# framework after the first. FFmpeg emits that form from pkg-config.
++function(aeron_preserve_framework_options target)
++    if(NOT TARGET "${target}")
++        return()
++    endif()
++    get_target_property(options "${target}" INTERFACE_LINK_OPTIONS)
++    if(NOT options)
++        return()
++    endif()
++    set(rewritten "")
++    list(LENGTH options count)
++    set(index 0)
++    while(index LESS count)
++        list(GET options ${index} item)
++        if(item STREQUAL "-framework")
++            math(EXPR next "${index} + 1")
++            if(next GREATER_EQUAL count)
++                break()
++            endif()
++            list(GET options ${next} framework)
++            list(APPEND rewritten "SHELL:-Wl,-framework,${framework}")
++            math(EXPR index "${index} + 2")
++        else()
++            list(APPEND rewritten "${item}")
++            math(EXPR index "${index} + 1")
++        endif()
++    endwhile()
++    set_property(TARGET "${target}" PROPERTY INTERFACE_LINK_OPTIONS "${rewritten}")
++endfunction()
++
+ if(AERON_ENABLE_AUDIO_DECODE OR AERON_ENABLE_VIDEO)
+     find_package(PkgConfig REQUIRED)
+     pkg_check_modules(FFMPEG_MEDIA REQUIRED IMPORTED_TARGET
+@@ -545,6 +590,7 @@ if(AERON_ENABLE_AUDIO_DECODE OR AERON_ENABLE_VIDEO)
+         libavutil
+         libswresample
+     )
++    aeron_preserve_framework_options(PkgConfig::FFMPEG_MEDIA)
+ 
+     add_library(aeron_ffmpeg_vfs STATIC src/ffmpeg_vfs_io.c)
+     set_target_properties(aeron_ffmpeg_vfs PROPERTIES
+@@ -586,6 +632,7 @@ endif()
+ 
+ if(AERON_ENABLE_VIDEO)
+     pkg_check_modules(FFMPEG_VIDEO REQUIRED IMPORTED_TARGET libswscale)
++    aeron_preserve_framework_options(PkgConfig::FFMPEG_VIDEO)
+ 
+     add_library(aeron_video
+         src/video.c
+diff --git a/include/aeron/aeron.h b/include/aeron/aeron.h
+index 05fd7b6..be51006 100644
+--- a/include/aeron/aeron.h
++++ b/include/aeron/aeron.h
+@@ -115,6 +115,12 @@ void Aeron_RaiseWindow(void);
+  * current host frame. This is distinct from logical coordinates and window
+  * points, particularly on high-density displays. */
+ int Aeron_GetPresentationPixelSize(int* width, int* height);
++/* Reserves pixels on each edge of the drawable before the aspect fit. The
++ * game and UI stay inside the remaining rectangle. Values are drawable
++ * pixels. Pointer hit testing, which runs in window points, scales them to
++ * that space. Zero clears that edge. Insets that consume the drawable are
++ * ignored. */
++void Aeron_SetPresentationInsets(int left, int top, int right, int bottom);
+ 
+ /* Returns the current immutable input snapshot for this frame. */
+ const AeronInputSnapshot* Aeron_InputSnapshot(void);
+diff --git a/include/aeron/render.h b/include/aeron/render.h
+index d601f79..c5804ac 100644
+--- a/include/aeron/render.h
++++ b/include/aeron/render.h
+@@ -363,6 +363,11 @@ typedef struct AeronSwapchainRenderLayerDesc {
+ 	void*                        userdata;
+ 	int                          required_width;
+ 	int                          required_height;
++	/* Nonzero when the callback records into the full drawable while the
++	 * aspect-fit content rect is smaller. required_width and required_height
++	 * must still match the drawable. Zero-initialized descriptors keep the
++	 * full-content requirement. */
++	int drawable_overlay;
+ 	/* Optional group name around the callback's GPU commands. The string must
+ 	 * remain valid until Aeron_Present returns. */
+ 	const char* debug_label;
+diff --git a/src/events.c b/src/events.c
+index 27cc653..b5a0a36 100644
+--- a/src/events.c
++++ b/src/events.c
+@@ -30,6 +30,19 @@ static void Aeron_ClearMouseActivity(AeronInputSnapshot* input) {
+ }
+ 
+ static int Aeron_UpdateRawMouseFromPlatform(AeronInputSnapshot* input) {
++#ifdef SDL_PLATFORM_IOS
++	float x;
++	float y;
++
++	/* UIKit has no global cursor. SDL_GetGlobalMouseState falls back to
++	 * window coordinates. This window's origin is the display origin, so
++	 * subtracting it moves the finger off the control. */
++	SDL_GetMouseState(&x, &y);
++	input->mouse.raw_x = (int)x;
++	input->mouse.raw_y = (int)y;
++
++	return 1;
++#else
+ 	float global_x;
+ 	float global_y;
+ 	int   window_x;
+@@ -43,6 +56,7 @@ static int Aeron_UpdateRawMouseFromPlatform(AeronInputSnapshot* input) {
+ 	input->mouse.raw_x = (int)(global_x - (float)window_x);
+ 	input->mouse.raw_y = (int)(global_y - (float)window_y);
+ 	return 1;
++#endif
+ }
+ 
+ static int Aeron_RawMouseInsideWindow(const AeronInputSnapshot* input) {
+diff --git a/src/internal.h b/src/internal.h
+index 74103cf..dd1a147 100644
+--- a/src/internal.h
++++ b/src/internal.h
+@@ -242,6 +242,12 @@ typedef struct AeronRuntime {
+ 	int                   window_aspect_pending;
+ 	int                   presentation_pixel_width;
+ 	int                   presentation_pixel_height;
++	int                   presentation_inset_left;
++	int                   presentation_inset_top;
++	int                   presentation_inset_right;
++	int                   presentation_inset_bottom;
++	int                   presentation_inset_ref_width;
++	int                   presentation_inset_ref_height;
+ 	int                   relative_mouse_enabled;
+ 	AeronPresentationMode presentation_mode;
+ 	int                   presentation_vsync_divisor;
+diff --git a/src/random.c b/src/random.c
+index 55e1024..4935fec 100644
+--- a/src/random.c
++++ b/src/random.c
+@@ -9,8 +9,13 @@
+ #include <bcrypt.h>
+ #else
+ #include <errno.h>
+-#include <sys/random.h>
+ #include <unistd.h>
++#if defined(__has_include) && __has_include(<sys/random.h>)
++#include <sys/random.h>
++#else
++/* The iPhone SDK omits this header. libSystem still exports getentropy. */
++int getentropy(void* buffer, size_t size);
++#endif
+ #endif
+ 
+ int Aeron_RandomBytes(void* data, size_t size) {
+diff --git a/src/render_backend.c b/src/render_backend.c
+index 8dfb1d6..b4da10f 100644
+--- a/src/render_backend.c
++++ b/src/render_backend.c
+@@ -1769,8 +1769,9 @@ int Aeron_Present(void) {
+ 				if (!direct->callback) {
+ 					continue;
+ 				}
+-				if (!full_target || direct->required_width != (int)swapchain_width ||
+-					direct->required_height != (int)swapchain_height) {
++				if (direct->required_width != (int)swapchain_width ||
++					direct->required_height != (int)swapchain_height ||
++					(!direct->drawable_overlay && !full_target)) {
+ 					Aeron_LogWarn("aeron", "skipping direct swapchain layer: required %dx%d, acquired %ux%u",
+ 								  direct->required_width, direct->required_height, swapchain_width,
+ 								  swapchain_height);
+diff --git a/src/scene/ui/containers.c b/src/scene/ui/containers.c
+index 2aa1cdb..5006209 100644
+--- a/src/scene/ui/containers.c
++++ b/src/scene/ui/containers.c
+@@ -88,6 +88,63 @@ void AeronUi_EndTabBar(AeronUiContext* ctx) {
+ /* ============================ scroll region ============================ */
+ 
+ #define UI_WHEEL_STEP_REF 60.0f
++#define UI_SCROLL_DRAG_REF 14.0f
++
++static AeronUiId ui_scroll_capture(AeronUiId id) { return id ^ 0xD6A611E1u; }
++
++float ui_scroll_drag(AeronUiContext* ctx, AeronUiId id, const UiRect* view, const AeronRectI* clip,
++					 float offset, float content_h) {
++	float max_off;
++	float threshold;
++	int   interactive;
++	int   pressed;
++	int   down;
++	if (!ctx || !view || id == 0)
++		return offset;
++	max_off = content_h - view->h;
++	if (max_off < 0.0f)
++		max_off = 0.0f;
++	interactive = ctx->scope_depth >= ctx->top_scope_prev && !ui_capture_active(ctx);
++	pressed     = (ctx->input->mouse.pressed_buttons & AERON_MOUSE_BUTTON_LEFT) != 0;
++	down        = (ctx->input->mouse.buttons & AERON_MOUSE_BUTTON_LEFT) != 0;
++	threshold   = ui_ref(ctx, UI_SCROLL_DRAG_REF);
++	if (max_off <= 0.0f) {
++		if (ctx->scroll_drag_id == id)
++			ctx->scroll_drag_id = 0;
++
++		return offset;
++	}
++	if (interactive && pressed && ctx->mouse_present && ui_mouse_in(ctx, view, clip) &&
++		(ctx->scroll_drag_id == 0 || !ctx->scroll_drag_moved)) {
++		ctx->scroll_drag_id            = id;
++		ctx->scroll_drag_origin_x      = ctx->mouse_x;
++		ctx->scroll_drag_origin_y      = ctx->mouse_y;
++		ctx->scroll_drag_origin_offset = offset;
++		ctx->scroll_drag_moved         = 0;
++	}
++	if (ctx->scroll_drag_id == id && down && ctx->mouse_present) {
++		float dx = ctx->mouse_x - ctx->scroll_drag_origin_x;
++		float dy = ctx->mouse_y - ctx->scroll_drag_origin_y;
++		if (!ctx->scroll_drag_moved && fabsf(dy) >= threshold && fabsf(dy) > fabsf(dx))
++			ctx->scroll_drag_moved = 1;
++		if (ctx->scroll_drag_moved) {
++			offset                 = ctx->scroll_drag_origin_offset - dy;
++			offset                 = fminf(fmaxf(offset, 0.0f), max_off);
++			ctx->active_id         = ui_scroll_capture(id);
++			ctx->scroll_drag_capture = ctx->active_id;
++		}
++	}
++	if (ctx->scroll_drag_id == id && !down) {
++		if (ctx->scroll_drag_moved) {
++			ctx->active_id           = ui_scroll_capture(id);
++			ctx->scroll_drag_capture = ctx->active_id;
++		}
++		ctx->scroll_drag_id    = 0;
++		ctx->scroll_drag_moved = 0;
++	}
++
++	return offset;
++}
+ 
+ int AeronUi_BeginScroll(AeronUiContext* ctx, const char* id, float height_ref) {
+ 	UiRect view;
+@@ -107,6 +164,11 @@ int AeronUi_BeginScroll(AeronUiContext* ctx, const char* id, float height_ref) {
+ 		offset -= (float)ctx->input->mouse.wheel_y * ui_ref(ctx, UI_WHEEL_STEP_REF) *
+ 				  (ui_mouse_in(ctx, &view, parent_clip) ? 1.0f : 0.0f);
+ 	}
++	{
++		UiRect drag_view = view;
++		drag_view.w -= ui_ref(ctx, ctx->theme.scrollbar_px) + ui_ref(ctx, 6.0f);
++		offset = ui_scroll_drag(ctx, scroll_id, &drag_view, parent_clip, offset, content_h);
++	}
+ 	offset = fminf(fmaxf(offset, 0.0f), fmaxf(0.0f, content_h - view.h));
+ 	if (slot) {
+ 		slot->v0 = offset;
+diff --git a/src/scene/ui/context.c b/src/scene/ui/context.c
+index 897a03a..1830a29 100644
+--- a/src/scene/ui/context.c
++++ b/src/scene/ui/context.c
+@@ -261,6 +261,10 @@ AeronUiOutput AeronUi_EndFrame(AeronUiContext* ctx) {
+ 	}
+ 
+ 	ui_resolve_navigation(ctx);
++	if (ctx->scroll_drag_capture && ctx->active_id == ctx->scroll_drag_capture &&
++		!(ctx->input->mouse.buttons & AERON_MOUSE_BUTTON_LEFT))
++		ctx->active_id = 0;
++	ctx->scroll_drag_capture = 0;
+ 
+ 	out.wants_keyboard = ctx->any_window;
+ 	out.wants_mouse    = ctx->any_window;
+diff --git a/src/scene/ui/internal.h b/src/scene/ui/internal.h
+index 9a532af..b608483 100644
+--- a/src/scene/ui/internal.h
++++ b/src/scene/ui/internal.h
+@@ -202,6 +202,14 @@ struct AeronUiContext {
+ 	/* Scroll regions declared this frame. */
+ 	UiScrollRec scrolls[AERON_UI_MAX_SCROLLS];
+ 	int         scroll_count;
++	/* Finger or pointer drag for the scroll region under the press.
++	 * A tap that stays inside the threshold still activates the widget. */
++	AeronUiId scroll_drag_id;
++	AeronUiId scroll_drag_capture;
++	float     scroll_drag_origin_x;
++	float     scroll_drag_origin_y;
++	float     scroll_drag_origin_offset;
++	int       scroll_drag_moved;
+ 
+ 	/* Transient state hash. */
+ 	UiStateSlot state[AERON_UI_STATE_SLOTS];
+@@ -239,6 +247,13 @@ int ui_is_focused(const AeronUiContext* ctx, AeronUiId id);
+ int ui_consume_adjust(AeronUiContext* ctx, AeronUiId id);
+ int ui_mouse_in(const AeronUiContext* ctx, const UiRect* rect, const AeronRectI* clip);
+ 
++/* ---- containers.c ---- */
++/* Vertical drag for a scrollable region. Returns the offset to apply.
++ * A press inside `view` claims the gesture. Movement past the threshold
++ * scrolls and suppresses the widget click. A short press does not. */
++float ui_scroll_drag(AeronUiContext* ctx, AeronUiId id, const UiRect* view, const AeronRectI* clip,
++					 float offset, float content_h);
++
+ /* ---- layout.c ---- */
+ UiLayout* ui_layout_top(AeronUiContext* ctx);
+ void      ui_layout_push(AeronUiContext* ctx, const UiLayout* layout);
+diff --git a/src/scene/ui/widgets_list.c b/src/scene/ui/widgets_list.c
+index 382ba87..89d9f1e 100644
+--- a/src/scene/ui/widgets_list.c
++++ b/src/scene/ui/widgets_list.c
+@@ -127,6 +127,10 @@ uint32_t AeronUi_ListBox(AeronUiContext* ctx, const char* label, const AeronUiLi
+ 	if (interactive && ui_mouse_in(ctx, &rect, parent_clip) && ctx->input->mouse.wheel_y) {
+ 		scroll -= (float)ctx->input->mouse.wheel_y * row_h * 3.0f;
+ 	}
++	{
++		UiRect drag_view = { rect.x, rect.y, content_w, rect.h };
++		scroll = ui_scroll_drag(ctx, id, &drag_view, parent_clip, scroll, (float)item_count * row_h);
++	}
+ 	scroll = fminf(fmaxf(scroll, 0.0f), max_scroll);
+ 
+ 	if (interactive && ctx->mouse_present && ctx->mouse_x < rect.x + content_w &&
+diff --git a/src/window.c b/src/window.c
+index 502d375..cbbfe4f 100644
+--- a/src/window.c
++++ b/src/window.c
+@@ -353,9 +353,56 @@ int Aeron_SetRelativeMouseMode(int enabled) {
+ 
+ int Aeron_RelativeMouseMode(void) { return g_aeron.relative_mouse_enabled; }
+ 
++void Aeron_SetPresentationInsets(int left, int top, int right, int bottom) {
++	int pixel_w = 0;
++	int pixel_h = 0;
++
++	g_aeron.presentation_inset_left   = left > 0 ? left : 0;
++	g_aeron.presentation_inset_top    = top > 0 ? top : 0;
++	g_aeron.presentation_inset_right  = right > 0 ? right : 0;
++	g_aeron.presentation_inset_bottom = bottom > 0 ? bottom : 0;
++	g_aeron.presentation_inset_ref_width  = 0;
++	g_aeron.presentation_inset_ref_height = 0;
++	if (g_aeron.window && SDL_GetWindowSizeInPixels(g_aeron.window, &pixel_w, &pixel_h) && pixel_w > 0 &&
++		pixel_h > 0) {
++		g_aeron.presentation_inset_ref_width  = pixel_w;
++		g_aeron.presentation_inset_ref_height = pixel_h;
++	}
++}
++
++static void Aeron_ScaledPresentationInsets(int container_width, int container_height, int* left, int* top,
++										   int* right, int* bottom) {
++	*left   = g_aeron.presentation_inset_left;
++	*top    = g_aeron.presentation_inset_top;
++	*right  = g_aeron.presentation_inset_right;
++	*bottom = g_aeron.presentation_inset_bottom;
++	if (g_aeron.presentation_inset_ref_width <= 0 || g_aeron.presentation_inset_ref_height <= 0 ||
++		container_width <= 0 || container_height <= 0) {
++
++		return;
++	}
++	if (container_width == g_aeron.presentation_inset_ref_width &&
++		container_height == g_aeron.presentation_inset_ref_height) {
++
++		return;
++	}
++	*left   = (int)(((int64_t)*left * container_width) / g_aeron.presentation_inset_ref_width);
++	*right  = (int)(((int64_t)*right * container_width) / g_aeron.presentation_inset_ref_width);
++	*top    = (int)(((int64_t)*top * container_height) / g_aeron.presentation_inset_ref_height);
++	*bottom = (int)(((int64_t)*bottom * container_height) / g_aeron.presentation_inset_ref_height);
++}
++
+ void Aeron_ComputePresentationRect(int container_width, int container_height, SDL_Rect* rect) {
+ 	int64_t content_width;
+ 	int64_t content_height;
++	int     origin_x;
++	int     origin_y;
++	int     avail_width;
++	int     avail_height;
++	int     inset_left;
++	int     inset_top;
++	int     inset_right;
++	int     inset_bottom;
+ 
+ 	if (!rect) {
+ 		return;
+@@ -369,8 +416,21 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
+ 		return;
+ 	}
+ 
+-	content_width  = container_width;
+-	content_height = container_height;
++	Aeron_ScaledPresentationInsets(container_width, container_height, &inset_left, &inset_top, &inset_right,
++								   &inset_bottom);
++	origin_x     = inset_left;
++	origin_y     = inset_top;
++	avail_width  = container_width - origin_x - inset_right;
++	avail_height = container_height - origin_y - inset_bottom;
++	if (avail_width < 1 || avail_height < 1) {
++		origin_x     = 0;
++		origin_y     = 0;
++		avail_width  = container_width;
++		avail_height = container_height;
++	}
++
++	content_width  = avail_width;
++	content_height = avail_height;
+ 	if (g_aeron.presentation_mode == AERON_PRESENTATION_ASPECT_FIT) {
+ 		if (content_width * g_aeron.logical_height > content_height * g_aeron.logical_width) {
+ 			content_width = (content_height * g_aeron.logical_width) / g_aeron.logical_height;
+@@ -382,11 +442,11 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
+ 		 * produce hairline bars — and lose exact coverage, which direct
+ 		 * swapchain rendering requires. Snap sub-1/256 shortfalls to full
+ 		 * coverage */
+-		if ((container_width - content_width) * 256 <= container_width) {
+-			content_width = container_width;
++		if ((avail_width - content_width) * 256 <= avail_width) {
++			content_width = avail_width;
+ 		}
+-		if ((container_height - content_height) * 256 <= container_height) {
+-			content_height = container_height;
++		if ((avail_height - content_height) * 256 <= avail_height) {
++			content_height = avail_height;
+ 		}
+ 	}
+ 
+@@ -399,6 +459,6 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
+ 
+ 	rect->w = (int)content_width;
+ 	rect->h = (int)content_height;
+-	rect->x = (container_width - rect->w) / 2;
+-	rect->y = (container_height - rect->h) / 2;
++	rect->x = origin_x + (avail_width - rect->w) / 2;
++	rect->y = origin_y + (avail_height - rect->h) / 2;
+ }

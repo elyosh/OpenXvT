@@ -2,7 +2,12 @@
 
 #include "aeron/main.h"
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 #include <stdio.h>
+#include <stdlib.h>
 
 int main(int argc, char* argv[]) {
 	XvtLaunchOptions options;
@@ -24,5 +29,12 @@ int main(int argc, char* argv[]) {
 				"  --help                      Show this help\n");
 		return valid ? 0 : 2;
 	}
-	return XvtApplication_Run(&options);
+	int code = XvtApplication_Run(&options);
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	/* SDL returns to UIKit after main and leaves the process running. The
+	 * window is already destroyed, so Exit Game would sit on a black scene. */
+	exit(code);
+#endif
+
+	return code;
 }

@@ -1,0 +1,112 @@
+diff --git a/src/video/uikit/SDL_uikitmetalview.h b/src/video/uikit/SDL_uikitmetalview.h
+index 5a2523e..2acf812 100644
+--- a/src/video/uikit/SDL_uikitmetalview.h
++++ b/src/video/uikit/SDL_uikitmetalview.h
+@@ -41,7 +41,8 @@
+ @interface SDL_uikitmetalview : SDL_uikitview
+ 
+ - (instancetype)initWithFrame:(CGRect)frame
+-                        scale:(CGFloat)scale;
++                        scale:(CGFloat)scale
++          tracksDisplayScale:(BOOL)tracks;
+ 
+ @end
+ 
+diff --git a/src/video/uikit/SDL_uikitmetalview.m b/src/video/uikit/SDL_uikitmetalview.m
+index da0a8ed..2dfdc3d 100644
+--- a/src/video/uikit/SDL_uikitmetalview.m
++++ b/src/video/uikit/SDL_uikitmetalview.m
+@@ -36,7 +36,9 @@
+ #import "SDL_uikitwindow.h"
+ #import "SDL_uikitmetalview.h"
+ 
+-@implementation SDL_uikitmetalview
++@implementation SDL_uikitmetalview {
++    BOOL tracksDisplayScale;
++}
+ 
+ // Returns a Metal-compatible layer.
+ + (Class)layerClass
+@@ -46,10 +48,14 @@
+ 
+ - (instancetype)initWithFrame:(CGRect)frame
+                         scale:(CGFloat)scale
++          tracksDisplayScale:(BOOL)tracks
+ {
+     if ((self = [super initWithFrame:frame])) {
++        tracksDisplayScale = tracks;
+         self.tag = SDL_METALVIEW_TAG;
+-        self.layer.contentsScale = scale;
++        if (scale > 0.0) {
++            self.layer.contentsScale = scale;
++        }
+         [self updateDrawableSize];
+     }
+ 
+@@ -60,6 +66,13 @@
+ - (void)layoutSubviews
+ {
+     [super layoutSubviews];
++    /* A fold can change the scale without a matching UIScreen change. */
++    if (tracksDisplayScale) {
++        CGFloat scale = self.traitCollection.displayScale;
++        if (scale > 0.0) {
++            self.layer.contentsScale = scale;
++        }
++    }
+     [self updateDrawableSize];
+ }
+ 
+@@ -84,16 +97,20 @@ SDL_MetalView UIKit_Metal_CreateView(SDL_VideoDevice *_this, SDL_Window *window)
+     @autoreleasepool {
+         SDL_UIKitWindowData *data = (__bridge SDL_UIKitWindowData *)window->internal;
+         CGFloat scale = 1.0;
++        BOOL tracksDisplayScale = NO;
+         SDL_uikitmetalview *metalview;
+ 
+         if (window->flags & SDL_WINDOW_HIGH_PIXEL_DENSITY) {
+-            /* Set the scale to the natural scale factor of the screen - then
+-             * the backing dimensions of the Metal view will match the pixel
+-             * dimensions of the screen rather than the dimensions in points
+-             * yielding high resolution on retine displays.
++            tracksDisplayScale = YES;
++            /* Set the scale to the view's display scale so the backing
++             * store matches the pixels of the current scene. UIScreen
++             * nativeScale stays on the screen that was current at launch.
+              */
+ #ifndef SDL_PLATFORM_VISIONOS
+-            scale = data.uiwindow.screen.nativeScale;
++            scale = data.uiwindow.traitCollection.displayScale;
++            if (scale <= 0.0) {
++                scale = 1.0;
++            }
+ #else
+             // VisionOS doesn't use the concept of "nativeScale" like other iOS devices.
+             // We use a fixed scale factor of 2.0 to achieve better pixel density.
+@@ -106,7 +123,8 @@ SDL_MetalView UIKit_Metal_CreateView(SDL_VideoDevice *_this, SDL_Window *window)
+         }
+ 
+         metalview = [[SDL_uikitmetalview alloc] initWithFrame:data.uiwindow.bounds
+-                                                        scale:scale];
++                                                        scale:scale
++                                          tracksDisplayScale:tracksDisplayScale];
+         if (metalview == nil) {
+             SDL_OutOfMemory();
+             return NULL;
+diff --git a/src/video/uikit/SDL_uikitwindow.m b/src/video/uikit/SDL_uikitwindow.m
+index 0ee7364..16db465 100644
+--- a/src/video/uikit/SDL_uikitwindow.m
++++ b/src/video/uikit/SDL_uikitwindow.m
+@@ -374,7 +374,11 @@ void UIKit_GetWindowSizeInPixels(SDL_VideoDevice *_this, SDL_Window *window, int
+ 
+         if (window->flags & SDL_WINDOW_HIGH_PIXEL_DENSITY) {
+ #ifndef SDL_PLATFORM_VISIONOS
+-            scale = windata.uiwindow.screen.nativeScale;
++            /* A fold changes this view's scale. UIScreen nativeScale does not. */
++            scale = view.traitCollection.displayScale;
++            if (scale <= 0.0) {
++                scale = 1.0;
++            }
+ #else
+             scale = 2.0;
+ #endif

@@ -26,9 +26,9 @@ void XvtInstallationPage_Open(void) {
 	snprintf(g_path, sizeof g_path, "%s", g_accepted);
 }
 
-void XvtInstallationPage_CancelPicker(void) { AeronUiFilePicker_Cancel(g_picker); }
+void XvtInstallationPage_CancelPicker(void) { XvtSetupUi_CancelPicker(g_picker); }
 
-bool XvtInstallationPage_PickerOpen(void) { return AeronUiFilePicker_IsOpen(g_picker) != 0; }
+bool XvtInstallationPage_PickerOpen(void) { return XvtSetupUi_PickerIsOpen(g_picker) != 0; }
 
 void XvtInstallationPage_Draw(AeronUiContext* ui, const AeronInputSnapshot* input) {
 	(void)input;
@@ -50,7 +50,7 @@ void XvtInstallationPage_Draw(AeronUiContext* ui, const AeronInputSnapshot* inpu
 void XvtInstallationPage_DrawPicker(AeronUiContext* ui) {
 	char selected[XVT_PATH_CAPACITY], error[1024];
 	AeronUiFilePickerResult result =
-		AeronUiFilePicker_Draw(g_picker, ui, selected, sizeof selected, error, sizeof error);
+		XvtSetupUi_DrawPicker(g_picker, ui, selected, sizeof selected, error, sizeof error);
 	if (result == AERON_UI_FILE_PICKER_SELECTED) {
 		if (!XvtSetup_ResolveInstallation(selected, g_path, sizeof g_path, error, sizeof error))
 			XvtSettingsMenu_ReportError(error);

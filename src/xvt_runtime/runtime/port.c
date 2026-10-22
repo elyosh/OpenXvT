@@ -27,9 +27,11 @@ static int g_xvtRebaseClock;
 static int g_xvtExitCode;
 static int g_skipIntro;
 static int g_quitting;
-static int g_settingsOpen, g_settingsRequested;
+static int g_settingsOpen, g_settingsRequested, g_simulationHeld;
 
 void XvtPort_SetSettingsOpen(int open) { g_settingsOpen = open != 0; }
+
+void XvtPort_SetSimulationHeld(int held) { g_simulationHeld = held != 0; }
 
 void XvtPort_RequestSettings(void) { g_settingsRequested = 1; }
 
@@ -140,8 +142,9 @@ void XvtPort_Tick(int32_t delta_us) {
 	XvtNetworkTask_ServiceBrowser();
 	XvtMovieTask_ReapFinished();
 	if (!XvtPort_NetworkRequiresProgress() &&
-		(g_settingsOpen || ((!input || !input->has_focus) && !XvtMovieTask_ContinuesWithoutFocus() &&
-							!XvtCampaignTask_ContinuesWithoutFocus()))) {
+		(g_settingsOpen || g_simulationHeld ||
+		 ((!input || !input->has_focus) && !XvtMovieTask_ContinuesWithoutFocus() &&
+		  !XvtCampaignTask_ContinuesWithoutFocus()))) {
 		XvtNetworkSession_Service();
 		XvtPort_PausedFrame();
 		return;
@@ -244,6 +247,6 @@ void XvtPort_Shutdown(void) {
 	g_xvtInitialized = 0;
 	g_xvtPaused = 0;
 	g_xvtRebaseClock = 0;
-	g_settingsOpen = g_settingsRequested = 0;
+	g_settingsOpen = g_settingsRequested = g_simulationHeld = 0;
 	Aeron_LogInfo("xvt.port", "runtime shut down");
 }

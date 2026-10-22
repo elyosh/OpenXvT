@@ -4,6 +4,7 @@
 #include "aeron/log.h"
 #include "xvt_app/settings/settings.h"
 #include "xvt_app/setup.h"
+#include "xvt_app/touch_controls.h"
 #include "xvt_app/ui.h"
 #include "xvt_remaster/xvt_remaster.h"
 #include "xvt_runtime/config/config.h"
@@ -29,9 +30,11 @@ static void XvtApplication_DiscoverControllers(const AeronInputSnapshot* input) 
 	if (!settings || XvtSettingsMenu_Open())
 		return;
 	XvtControllerOptions candidate = settings->controller;
+	AeronInputSnapshot filtered;
 	char error[512] = { 0 };
+	XvtTouchControls_Omit(&filtered, input);
 	bool ok = XvtControllerOptions_InitializeGamepads(
-		&candidate, &XvtConfig_DefaultSettings()->gamepad_defaults, input, error, sizeof error);
+		&candidate, &XvtConfig_DefaultSettings()->gamepad_defaults, &filtered, error, sizeof error);
 	if (!XvtControllerOptions_Equals(&candidate, &settings->controller)) {
 		char save_error[512];
 		if (XvtConfig_SetController(&candidate, save_error, sizeof save_error))
@@ -55,6 +58,7 @@ static int XvtApplication_FrameLoop(void) {
 			break;
 		const AeronInputSnapshot* input = Aeron_InputSnapshot();
 		XvtApplication_DiscoverControllers(input);
+		XvtTouchControls_Sync(input);
 		bool menu_opened = XvtSettingsMenu_BeginFrame(input);
 		int debug_key = XvtKeyboardMapping_Trigger(input, XVT_KEYBOARD_SHORTCUT_DEBUG);
 		if (debug_key >= 0 && !XvtSettingsMenu_CapturesKeyboard()) {
@@ -67,6 +71,8 @@ static int XvtApplication_FrameLoop(void) {
 		if (XvtPort_ShouldQuit())
 			break;
 		XvtRemaster_Frame(delta_us);
+		if (!XvtSettingsMenu_Open())
+			XvtTouchControls_Draw();
 		if (!menu_opened)
 			XvtSettingsMenu_Frame(input, (float)delta_us / 1000000.0f);
 		if (!Aeron_Present()) {
@@ -127,6 +133,7 @@ int XvtApplication_Run(const XvtLaunchOptions* options) {
 		Aeron_LogError("xvt.settings", "%s", error);
 		goto cleanup;
 	}
+	XvtTouchControls_Init(&ui.font);
 	if (!XvtRemaster_Init())
 		goto cleanup;
 	AeronWinmmCdAudioDesc cd = { Aeron_GetVfs(), AERON_VFS_ROOT_ASSET, "BalanceOfPower/MUSIC" };
@@ -140,6 +147,7 @@ int XvtApplication_Run(const XvtLaunchOptions* options) {
 		exit_code = XvtApplication_FrameLoop();
 	}
 cleanup:
+	XvtTouchControls_Shutdown();
 	XvtSettingsMenu_FlushForExit();
 	XvtSettingsMenu_Shutdown();
 	XvtPort_Shutdown();

@@ -29,6 +29,15 @@ int XvtConfig_SetGameData(const char* path, int save, char* error, size_t capaci
 bool XvtConfig_SetFlightRate(bool unlocked, char* error, size_t capacity);
 /* Updates the preference consumed at the next launch; Save persists it. */
 bool XvtConfig_SetSkipIntro(bool enabled, char* error, size_t capacity);
+bool XvtConfig_SetTouchControls(int mode, char* error, size_t capacity);
+/* 0 restores the shipped solid look. Values above 1 are rejected. */
+bool XvtConfig_SetTouchTransparency(float transparency, char* error, size_t capacity);
+/* action == XVT_INPUT_ACTION_NONE restores that button's shipped command. */
+bool XvtConfig_SetTouchButton(int index, int action, char* error, size_t capacity);
+bool XvtConfig_ClearTouchButtons(char* error, size_t capacity);
+/* x or y below zero restores that control's shipped position. */
+bool XvtConfig_SetTouchPlaces(const float* x, const float* y, char* error, size_t capacity);
+bool XvtConfig_ClearTouchPlaces(char* error, size_t capacity);
 int XvtConfig_Apply(GameConfig* game, char* error, size_t capacity);
 int XvtConfig_Write(const GameConfig* game, char* error, size_t capacity);
 int XvtConfig_Save(char* error, size_t capacity);

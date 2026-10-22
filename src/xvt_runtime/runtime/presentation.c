@@ -39,20 +39,23 @@ AeronRectI XvtPresentation_FromClassic(AeronRectI r) {
 }
 
 int XvtPresentation_MouseToClassic(const AeronInputSnapshot* in, int* x, int* y) {
-	if (!in || in->window_width <= 0 || in->window_height <= 0)
+	AeronRectI classic;
+	int px, py;
+	if (!in || !x || !y || !in->mouse.inside_content)
+
 		return 0;
-	/* Raw window coordinates avoid using last frame's logical width on resize. */
-	int w = in->window_width, h = in->window_height;
-	if ((int64_t)w * 480 > (int64_t)h * 640)
-		w = h * 640 / 480;
-	else
-		h = w * 480 / 640;
-	if (!w || !h)
+	/* mouse.x/y already sit in the aspect-fitted content rect, including the
+	 * upper-half slot used while the Duo is in the laptop pose. */
+	classic = XvtPresentation_ClassicRect();
+	px = in->mouse.x - classic.x;
+	py = in->mouse.y - classic.y;
+	if (px < 0 || py < 0 || px >= classic.width || py >= classic.height)
+
 		return 0;
-	int px = in->mouse.raw_x - (in->window_width - w) / 2, py = in->mouse.raw_y - (in->window_height - h) / 2;
-	*x = (int)((int64_t)px * 640 / w);
-	*y = (int)((int64_t)py * 480 / h);
-	return in->mouse.inside_content && px >= 0 && py >= 0 && px < w && py < h;
+	*x = px;
+	*y = py;
+
+	return 1;
 }
 
 int XvtPresentation_WarpClassic(int x, int y) {

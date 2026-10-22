@@ -9,6 +9,7 @@
 #include "xvt_runtime/storage/storage.h"
 #include <ctype.h>
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -494,6 +495,160 @@ bool XvtConfig_SetSkipIntro(bool enabled, char* error, size_t capacity) {
 	else
 		XvtSettings_FileError(&detail, error, capacity);
 	AeronConfigFile_Destroy(updated);
+	return success;
+}
+
+bool XvtConfig_SetTouchControls(int mode, char* error, size_t capacity) {
+	AeronConfigFile* updated = NULL;
+	AeronConfigError detail;
+	const char* value = NULL;
+	if (!g_writable)
+		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
+	if (mode == XVT_TOUCH_CONTROLS_ON)
+		value = "on";
+	else if (mode == XVT_TOUCH_CONTROLS_OFF)
+		value = "off";
+	else if (mode != XVT_TOUCH_CONTROLS_AUTOMATIC)
+		return XvtConfig_Error(error, capacity, "unsupported touch control mode", NULL);
+	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
+		return XvtSettings_FileError(&detail, error, capacity);
+	bool success = value ? AeronConfigFile_SetString(updated, "input.touch_controls", value, &detail)
+						 : AeronConfigFile_Remove(updated, "input.touch_controls", &detail);
+	if (success)
+		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
+	else
+		XvtSettings_FileError(&detail, error, capacity);
+	AeronConfigFile_Destroy(updated);
+	return success;
+}
+
+bool XvtConfig_SetTouchTransparency(float transparency, char* error, size_t capacity) {
+	AeronConfigFile* updated = NULL;
+	AeronConfigError detail;
+	if (!g_writable)
+		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
+	if (!isfinite(transparency) || transparency < 0.0f || transparency > 1.0f)
+		return XvtConfig_Error(error, capacity, "expected a transparency from 0 to 1", NULL);
+	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
+		return XvtSettings_FileError(&detail, error, capacity);
+	bool success = transparency <= 0.0f
+					   ? (AeronConfigFile_GetNode(updated, "input.touch_transparency")
+							  ? AeronConfigFile_Remove(updated, "input.touch_transparency", &detail) != 0
+							  : true)
+					   : AeronConfigFile_SetFloat(updated, "input.touch_transparency", transparency, &detail) !=
+							 0;
+	if (success)
+		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
+	else
+		XvtSettings_FileError(&detail, error, capacity);
+	AeronConfigFile_Destroy(updated);
+
+	return success;
+}
+
+bool XvtConfig_SetTouchButton(int index, int action, char* error, size_t capacity) {
+	AeronConfigFile* updated = NULL;
+	AeronConfigError detail;
+	char path[96];
+	const char* key;
+	if (!g_writable)
+		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
+	key = XvtTouchButton_Key(index);
+	if (!key[0])
+		return XvtConfig_Error(error, capacity, "unknown touch button", NULL);
+	if (action != XVT_INPUT_ACTION_NONE && !XvtInputActions_KeyboardBindable((XvtInputAction)action))
+		return XvtConfig_Error(error, capacity, "expected a bindable command", NULL);
+	if (action == (int)XvtTouchButton_Default(index))
+		action = XVT_INPUT_ACTION_NONE;
+	snprintf(path, sizeof path, "input.touch_buttons.%s", key);
+	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
+		return XvtSettings_FileError(&detail, error, capacity);
+	bool success = true;
+	if (action == XVT_INPUT_ACTION_NONE) {
+		if (AeronConfigFile_GetNode(updated, path))
+			success = AeronConfigFile_Remove(updated, path, &detail) != 0;
+	} else {
+		success = AeronConfigFile_SetString(updated, path, XvtInputActions_ToName((XvtInputAction)action),
+											&detail) != 0;
+	}
+	if (success)
+		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
+	else
+		XvtSettings_FileError(&detail, error, capacity);
+	AeronConfigFile_Destroy(updated);
+
+	return success;
+}
+
+bool XvtConfig_ClearTouchButtons(char* error, size_t capacity) {
+	AeronConfigFile* updated = NULL;
+	AeronConfigError detail;
+	if (!g_writable)
+		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
+	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
+		return XvtSettings_FileError(&detail, error, capacity);
+	bool success = true;
+	if (AeronConfigFile_GetNode(updated, "input.touch_buttons"))
+		success = AeronConfigFile_Remove(updated, "input.touch_buttons", &detail) != 0;
+	if (success)
+		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
+	else
+		XvtSettings_FileError(&detail, error, capacity);
+	AeronConfigFile_Destroy(updated);
+
+	return success;
+}
+
+bool XvtConfig_SetTouchPlaces(const float* x, const float* y, char* error, size_t capacity) {
+	AeronConfigFile* updated = NULL;
+	AeronConfigError detail;
+	if (!g_writable)
+		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
+	if (!x || !y)
+		return XvtConfig_Error(error, capacity, "touch positions are missing", NULL);
+	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
+		return XvtSettings_FileError(&detail, error, capacity);
+	bool success = true;
+	if (AeronConfigFile_GetNode(updated, "input.touch_layout"))
+		success = AeronConfigFile_Remove(updated, "input.touch_layout", &detail) != 0;
+	for (int i = 0; success && i < XVT_TOUCH_PLACE_COUNT; ++i) {
+		char path[96];
+		if (x[i] < 0.0f || y[i] < 0.0f)
+			continue;
+		snprintf(path, sizeof path, "input.touch_layout.%s.x", XvtTouchPlace_Key(i));
+		success = AeronConfigFile_SetFloat(updated, path, x[i] < 0.0f ? 0.0 : (x[i] > 1.0f ? 1.0 : x[i]),
+										   &detail) != 0;
+		if (!success)
+			break;
+		snprintf(path, sizeof path, "input.touch_layout.%s.y", XvtTouchPlace_Key(i));
+		success = AeronConfigFile_SetFloat(updated, path, y[i] < 0.0f ? 0.0 : (y[i] > 1.0f ? 1.0 : y[i]),
+										   &detail) != 0;
+	}
+	if (success)
+		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
+	else
+		XvtSettings_FileError(&detail, error, capacity);
+	AeronConfigFile_Destroy(updated);
+
+	return success;
+}
+
+bool XvtConfig_ClearTouchPlaces(char* error, size_t capacity) {
+	AeronConfigFile* updated = NULL;
+	AeronConfigError detail;
+	if (!g_writable)
+		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
+	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
+		return XvtSettings_FileError(&detail, error, capacity);
+	bool success = true;
+	if (AeronConfigFile_GetNode(updated, "input.touch_layout"))
+		success = AeronConfigFile_Remove(updated, "input.touch_layout", &detail) != 0;
+	if (success)
+		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
+	else
+		XvtSettings_FileError(&detail, error, capacity);
+	AeronConfigFile_Destroy(updated);
+
 	return success;
 }
 
