@@ -3848,6 +3848,11 @@ void Hud_DrawCachedSegmentedBar(uint16_t filledCount, uint16_t elementIdx, uint1
 	x = g_hudElementLayouts[elementIdx].x;
 	y = g_hudElementLayouts[elementIdx].y;
 	selector = g_hudElementLayouts[elementIdx].selector;
+#ifdef XVT_MODERN
+	/* Cockpits without this bar leave its .INT record zeroed; drawing it wraps y below row 0. */
+	if (x == 0 && y == 0)
+		return;
+#endif
 	if (segmentCount == segmentIndex)
 		return;
 

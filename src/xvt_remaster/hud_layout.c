@@ -94,10 +94,13 @@ static int CompileSystems(XvtHudLayout* layout, const XvtCockpitState* state) {
 											   XVT_COCKPIT_FEATURE_LASER_POWER,
 											   XVT_COCKPIT_FEATURE_SHIELD_POWER,
 											   XVT_COCKPIT_FEATURE_BEAM_POWER };
-	for (unsigned gauge = 0; gauge < 4; ++gauge)
+	for (unsigned gauge = 0; gauge < 4; ++gauge) {
+		const XvtSnapHudElement* element = &state->definition.layout.elements[base + 42 + gauge];
 		if ((features & power_features[gauge]) && (gauge != 3 || !state->view.compact_instruments) &&
+			(element->x || element->y) &&
 			!BindFrames(layout, state, XVT_HUD_ENGINE_POWER + gauge, base + 42 + gauge, 2, 253, 1))
 			return 0;
+	}
 	if ((features & XVT_COCKPIT_FEATURE_BEAM) && !BindFadedFrames(layout, state, XVT_HUD_BEAM, base + 51, 1))
 		return 0;
 	if (((features & XVT_COCKPIT_FEATURE_BEAM) &&
