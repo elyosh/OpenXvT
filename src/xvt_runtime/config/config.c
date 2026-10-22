@@ -546,31 +546,123 @@ bool XvtConfig_SetTouchTransparency(float transparency, char* error, size_t capa
 	return success;
 }
 
-bool XvtConfig_SetTouchButton(int index, int action, char* error, size_t capacity) {
+static void XvtConfig_CopyTouch(XvtTouchButtonSlot* slots, float* fixed_x, float* fixed_y) {
+	const XvtSettings* settings = XvtConfig_Settings();
+	if (!settings) {
+		XvtTouchButtons_Reset(slots);
+		for (int i = 0; i < XVT_TOUCH_FIXED_COUNT; ++i) {
+			fixed_x[i] = -1.0f;
+			fixed_y[i] = -1.0f;
+		}
+
+		return;
+	}
+	memcpy(slots, settings->touch_buttons, sizeof(XvtTouchButtonSlot) * XVT_TOUCH_BUTTON_CAP);
+	memcpy(fixed_x, settings->touch_fixed_x, sizeof(float) * XVT_TOUCH_FIXED_COUNT);
+	memcpy(fixed_y, settings->touch_fixed_y, sizeof(float) * XVT_TOUCH_FIXED_COUNT);
+}
+
+static bool XvtConfig_WriteTouchPosition(AeronConfigFile* updated, const char* key, float x, float y,
+										 AeronConfigError* detail) {
+	char path[96];
+	if (x < 0.0f || y < 0.0f)
+
+		return true;
+	snprintf(path, sizeof path, "input.touch_layout.%s.x", key);
+	if (!AeronConfigFile_SetFloat(updated, path, x > 1.0f ? 1.0 : x, detail))
+
+		return false;
+	snprintf(path, sizeof path, "input.touch_layout.%s.y", key);
+
+	return AeronConfigFile_SetFloat(updated, path, y > 1.0f ? 1.0 : y, detail) != 0;
+}
+
+static bool XvtConfig_WriteTouchState(const XvtTouchButtonSlot* slots, const float* fixed_x,
+									  const float* fixed_y, char* error, size_t capacity) {
 	AeronConfigFile* updated = NULL;
 	AeronConfigError detail;
-	char path[96];
-	const char* key;
+	AeronConfigValue items[XVT_TOUCH_BUTTON_CAP];
+	AeronConfigValue slot_values[XVT_TOUCH_BUTTON_CAP];
+	AeronConfigValue action_values[XVT_TOUCH_BUTTON_CAP];
+	AeronConfigValue x_values[XVT_TOUCH_BUTTON_CAP];
+	AeronConfigValue y_values[XVT_TOUCH_BUTTON_CAP];
+	AeronConfigMapValue fields[XVT_TOUCH_BUTTON_CAP][4];
+	AeronConfigValue list;
+	int packed = 0;
+	bool success = true;
 	if (!g_writable)
 		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
-	key = XvtTouchButton_Key(index);
-	if (!key[0])
-		return XvtConfig_Error(error, capacity, "unknown touch button", NULL);
-	if (action != XVT_INPUT_ACTION_NONE && !XvtInputActions_KeyboardBindable((XvtInputAction)action))
-		return XvtConfig_Error(error, capacity, "expected a bindable command", NULL);
-	if (action == (int)XvtTouchButton_Default(index))
-		action = XVT_INPUT_ACTION_NONE;
-	snprintf(path, sizeof path, "input.touch_buttons.%s", key);
+	if (!slots || !fixed_x || !fixed_y)
+		return XvtConfig_Error(error, capacity, "touch controls are missing", NULL);
+	for (int i = 0; i < XVT_TOUCH_BUTTON_CAP; ++i) {
+		int placed = slots[i].x >= 0.0f && slots[i].y >= 0.0f;
+		int automatic = slots[i].x < 0.0f && slots[i].y < 0.0f;
+		if (!slots[i].present)
+			continue;
+		if (!XvtInputActions_KeyboardBindable((XvtInputAction)slots[i].action))
+			return XvtConfig_Error(error, capacity, "expected a bindable command", NULL);
+		if (!placed && !automatic)
+			return XvtConfig_Error(error, capacity, "expected a position from 0 to 1", NULL);
+		if (placed && (slots[i].x > 1.0f || slots[i].y > 1.0f))
+			return XvtConfig_Error(error, capacity, "expected a position from 0 to 1", NULL);
+	}
+	for (int i = 0; i < XVT_TOUCH_FIXED_COUNT; ++i) {
+		int placed = fixed_x[i] >= 0.0f && fixed_y[i] >= 0.0f;
+		int automatic = fixed_x[i] < 0.0f && fixed_y[i] < 0.0f;
+		if (!placed && !automatic)
+			return XvtConfig_Error(error, capacity, "expected a position from 0 to 1", NULL);
+		if (placed && (fixed_x[i] > 1.0f || fixed_y[i] > 1.0f))
+			return XvtConfig_Error(error, capacity, "expected a position from 0 to 1", NULL);
+	}
 	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
 		return XvtSettings_FileError(&detail, error, capacity);
-	bool success = true;
-	if (action == XVT_INPUT_ACTION_NONE) {
-		if (AeronConfigFile_GetNode(updated, path))
-			success = AeronConfigFile_Remove(updated, path, &detail) != 0;
-	} else {
-		success = AeronConfigFile_SetString(updated, path, XvtInputActions_ToName((XvtInputAction)action),
-											&detail) != 0;
+	if (success && AeronConfigFile_GetNode(updated, "input.touch_buttons"))
+		success = AeronConfigFile_Remove(updated, "input.touch_buttons", &detail) != 0;
+	if (success && AeronConfigFile_GetNode(updated, "input.touch_layout"))
+		success = AeronConfigFile_Remove(updated, "input.touch_layout", &detail) != 0;
+	if (success && XvtTouchButtons_ShippedPresence(slots)) {
+		for (int i = 0; success && i < XVT_TOUCH_BUTTON_COUNT; ++i) {
+			char path[96];
+			if (slots[i].action == (int)XvtTouchButton_Default(i))
+				continue;
+			snprintf(path, sizeof path, "input.touch_buttons.%s", XvtTouchButton_Key(i));
+			success = AeronConfigFile_SetString(updated, path,
+												XvtInputActions_ToName((XvtInputAction)slots[i].action),
+												&detail) != 0;
+		}
+		for (int i = 0; success && i < XVT_TOUCH_BUTTON_COUNT; ++i)
+			success = XvtConfig_WriteTouchPosition(updated, XvtTouchButton_Key(i), slots[i].x, slots[i].y,
+												   &detail);
+	} else if (success) {
+		for (int i = 0; i < XVT_TOUCH_BUTTON_CAP; ++i) {
+			int field_count = 2;
+			if (!slots[i].present)
+				continue;
+			slot_values[packed] = (AeronConfigValue) { .type = AERON_CONFIG_INT, .value.int_value = i };
+			action_values[packed] =
+				(AeronConfigValue) { .type = AERON_CONFIG_STRING,
+									 .value.string_value = XvtInputActions_ToName((XvtInputAction)slots[i].action) };
+			fields[packed][0] = (AeronConfigMapValue) { "slot", &slot_values[packed] };
+			fields[packed][1] = (AeronConfigMapValue) { "action", &action_values[packed] };
+			if (slots[i].x >= 0.0f && slots[i].y >= 0.0f) {
+				x_values[packed] =
+					(AeronConfigValue) { .type = AERON_CONFIG_FLOAT, .value.float_value = slots[i].x };
+				y_values[packed] =
+					(AeronConfigValue) { .type = AERON_CONFIG_FLOAT, .value.float_value = slots[i].y };
+				fields[packed][2] = (AeronConfigMapValue) { "x", &x_values[packed] };
+				fields[packed][3] = (AeronConfigMapValue) { "y", &y_values[packed] };
+				field_count = 4;
+			}
+			items[packed] = (AeronConfigValue) { .type = AERON_CONFIG_MAP,
+												 .value.map = { fields[packed], (size_t)field_count } };
+			++packed;
+		}
+		list = (AeronConfigValue) { .type = AERON_CONFIG_SEQUENCE,
+									.value.sequence = { packed ? items : NULL, (size_t)packed } };
+		success = AeronConfigFile_SetValue(updated, "input.touch_buttons", &list, &detail) != 0;
 	}
+	for (int i = 0; success && i < XVT_TOUCH_FIXED_COUNT; ++i)
+		success = XvtConfig_WriteTouchPosition(updated, XvtTouchFixed_Key(i), fixed_x[i], fixed_y[i], &detail);
 	if (success)
 		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
 	else
@@ -578,78 +670,132 @@ bool XvtConfig_SetTouchButton(int index, int action, char* error, size_t capacit
 	AeronConfigFile_Destroy(updated);
 
 	return success;
+}
+
+bool XvtConfig_SetTouchButton(int slot, int action, char* error, size_t capacity) {
+	XvtTouchButtonSlot slots[XVT_TOUCH_BUTTON_CAP];
+	float fixed_x[XVT_TOUCH_FIXED_COUNT];
+	float fixed_y[XVT_TOUCH_FIXED_COUNT];
+	if (slot < 0 || slot >= XVT_TOUCH_BUTTON_CAP)
+		return XvtConfig_Error(error, capacity, "unknown touch button", NULL);
+	XvtConfig_CopyTouch(slots, fixed_x, fixed_y);
+	if (!slots[slot].present)
+		return XvtConfig_Error(error, capacity, "unknown touch button", NULL);
+	if (slot < XVT_TOUCH_BUTTON_COUNT && action == XVT_INPUT_ACTION_NONE)
+		action = (int)XvtTouchButton_Default(slot);
+	if (!XvtInputActions_KeyboardBindable((XvtInputAction)action))
+		return XvtConfig_Error(error, capacity, "expected a bindable command", NULL);
+	slots[slot].action = action;
+
+	return XvtConfig_WriteTouchState(slots, fixed_x, fixed_y, error, capacity);
+}
+
+bool XvtConfig_AddTouchButton(int* out_slot, char* error, size_t capacity) {
+	XvtTouchButtonSlot slots[XVT_TOUCH_BUTTON_CAP];
+	float fixed_x[XVT_TOUCH_FIXED_COUNT];
+	float fixed_y[XVT_TOUCH_FIXED_COUNT];
+	int slot = -1;
+	if (!out_slot)
+		return XvtConfig_Error(error, capacity, "touch controls are missing", NULL);
+	XvtConfig_CopyTouch(slots, fixed_x, fixed_y);
+	if (XvtTouchButtons_PresentCount(slots) >= XVT_TOUCH_BUTTON_CAP)
+		return XvtConfig_Error(error, capacity, "32 buttons is the limit", NULL);
+	for (int i = 0; i < XVT_TOUCH_BUTTON_CAP; ++i) {
+		if (slots[i].present)
+			continue;
+		slot = i;
+		break;
+	}
+	if (slot < 0)
+		return XvtConfig_Error(error, capacity, "32 buttons is the limit", NULL);
+	slots[slot].present = 1;
+	slots[slot].action = slot < XVT_TOUCH_BUTTON_COUNT ? (int)XvtTouchButton_Default(slot)
+													   : (int)XVT_INPUT_ACTION_FIRE_WEAPON;
+	slots[slot].x = -1.0f;
+	slots[slot].y = -1.0f;
+	if (!XvtConfig_WriteTouchState(slots, fixed_x, fixed_y, error, capacity))
+
+		return false;
+	*out_slot = slot;
+
+	return true;
+}
+
+bool XvtConfig_RemoveTouchButton(int slot, char* error, size_t capacity) {
+	XvtTouchButtonSlot slots[XVT_TOUCH_BUTTON_CAP];
+	float fixed_x[XVT_TOUCH_FIXED_COUNT];
+	float fixed_y[XVT_TOUCH_FIXED_COUNT];
+	if (slot < 0 || slot >= XVT_TOUCH_BUTTON_CAP)
+		return XvtConfig_Error(error, capacity, "unknown touch button", NULL);
+	XvtConfig_CopyTouch(slots, fixed_x, fixed_y);
+	if (!slots[slot].present)
+		return XvtConfig_Error(error, capacity, "unknown touch button", NULL);
+	slots[slot].present = 0;
+	slots[slot].action = XVT_INPUT_ACTION_NONE;
+	slots[slot].x = -1.0f;
+	slots[slot].y = -1.0f;
+
+	return XvtConfig_WriteTouchState(slots, fixed_x, fixed_y, error, capacity);
 }
 
 bool XvtConfig_ClearTouchButtons(char* error, size_t capacity) {
-	AeronConfigFile* updated = NULL;
-	AeronConfigError detail;
-	if (!g_writable)
-		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
-	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
-		return XvtSettings_FileError(&detail, error, capacity);
-	bool success = true;
-	if (AeronConfigFile_GetNode(updated, "input.touch_buttons"))
-		success = AeronConfigFile_Remove(updated, "input.touch_buttons", &detail) != 0;
-	if (success)
-		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
-	else
-		XvtSettings_FileError(&detail, error, capacity);
-	AeronConfigFile_Destroy(updated);
+	XvtTouchButtonSlot previous[XVT_TOUCH_BUTTON_CAP];
+	XvtTouchButtonSlot slots[XVT_TOUCH_BUTTON_CAP];
+	float fixed_x[XVT_TOUCH_FIXED_COUNT];
+	float fixed_y[XVT_TOUCH_FIXED_COUNT];
+	XvtConfig_CopyTouch(previous, fixed_x, fixed_y);
+	XvtTouchButtons_Reset(slots);
+	for (int i = 0; i < XVT_TOUCH_BUTTON_COUNT; ++i) {
+		slots[i].x = previous[i].x;
+		slots[i].y = previous[i].y;
+	}
 
-	return success;
+	return XvtConfig_WriteTouchState(slots, fixed_x, fixed_y, error, capacity);
 }
 
 bool XvtConfig_SetTouchPlaces(const float* x, const float* y, char* error, size_t capacity) {
-	AeronConfigFile* updated = NULL;
-	AeronConfigError detail;
-	if (!g_writable)
-		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
+	XvtTouchButtonSlot slots[XVT_TOUCH_BUTTON_CAP];
+	float fixed_x[XVT_TOUCH_FIXED_COUNT];
+	float fixed_y[XVT_TOUCH_FIXED_COUNT];
 	if (!x || !y)
 		return XvtConfig_Error(error, capacity, "touch positions are missing", NULL);
-	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
-		return XvtSettings_FileError(&detail, error, capacity);
-	bool success = true;
-	if (AeronConfigFile_GetNode(updated, "input.touch_layout"))
-		success = AeronConfigFile_Remove(updated, "input.touch_layout", &detail) != 0;
-	for (int i = 0; success && i < XVT_TOUCH_PLACE_COUNT; ++i) {
-		char path[96];
-		if (x[i] < 0.0f || y[i] < 0.0f)
-			continue;
-		snprintf(path, sizeof path, "input.touch_layout.%s.x", XvtTouchPlace_Key(i));
-		success = AeronConfigFile_SetFloat(updated, path, x[i] < 0.0f ? 0.0 : (x[i] > 1.0f ? 1.0 : x[i]),
-										   &detail) != 0;
-		if (!success)
-			break;
-		snprintf(path, sizeof path, "input.touch_layout.%s.y", XvtTouchPlace_Key(i));
-		success = AeronConfigFile_SetFloat(updated, path, y[i] < 0.0f ? 0.0 : (y[i] > 1.0f ? 1.0 : y[i]),
-										   &detail) != 0;
+	XvtConfig_CopyTouch(slots, fixed_x, fixed_y);
+	for (int control = 0; control < XVT_TOUCH_CONTROL_COUNT; ++control) {
+		int slot = XvtTouchControl_Slot(control);
+		int fixed = XvtTouchControl_Fixed(control);
+		float px = x[control];
+		float py = y[control];
+		if (px < 0.0f || py < 0.0f) {
+			px = -1.0f;
+			py = -1.0f;
+		}
+		if (slot >= 0) {
+			slots[slot].x = px;
+			slots[slot].y = py;
+		} else if (fixed >= 0) {
+			fixed_x[fixed] = px;
+			fixed_y[fixed] = py;
+		}
 	}
-	if (success)
-		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
-	else
-		XvtSettings_FileError(&detail, error, capacity);
-	AeronConfigFile_Destroy(updated);
 
-	return success;
+	return XvtConfig_WriteTouchState(slots, fixed_x, fixed_y, error, capacity);
 }
 
 bool XvtConfig_ClearTouchPlaces(char* error, size_t capacity) {
-	AeronConfigFile* updated = NULL;
-	AeronConfigError detail;
-	if (!g_writable)
-		return XvtConfig_Error(error, capacity, "configuration saving is disabled", NULL);
-	if (!AeronConfigFile_Clone(g_user, &updated, &detail))
-		return XvtSettings_FileError(&detail, error, capacity);
-	bool success = true;
-	if (AeronConfigFile_GetNode(updated, "input.touch_layout"))
-		success = AeronConfigFile_Remove(updated, "input.touch_layout", &detail) != 0;
-	if (success)
-		success = XvtConfig_UpdateUser(updated, 0, error, capacity);
-	else
-		XvtSettings_FileError(&detail, error, capacity);
-	AeronConfigFile_Destroy(updated);
+	XvtTouchButtonSlot slots[XVT_TOUCH_BUTTON_CAP];
+	float fixed_x[XVT_TOUCH_FIXED_COUNT];
+	float fixed_y[XVT_TOUCH_FIXED_COUNT];
+	XvtConfig_CopyTouch(slots, fixed_x, fixed_y);
+	for (int i = 0; i < XVT_TOUCH_BUTTON_CAP; ++i) {
+		slots[i].x = -1.0f;
+		slots[i].y = -1.0f;
+	}
+	for (int i = 0; i < XVT_TOUCH_FIXED_COUNT; ++i) {
+		fixed_x[i] = -1.0f;
+		fixed_y[i] = -1.0f;
+	}
 
-	return success;
+	return XvtConfig_WriteTouchState(slots, fixed_x, fixed_y, error, capacity);
 }
 
 int XvtConfig_Write(const GameConfig* game, char* error, size_t capacity) {

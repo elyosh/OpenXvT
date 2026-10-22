@@ -10,6 +10,7 @@
 #include "xvt_app/settings/settings.h"
 #include "xvt_runtime/config/config.h"
 #include "xvt_runtime/input/controller_mapping.h"
+#include "xvt_runtime/input/controller_mapping.h"
 #include "xvt_runtime/input/touch_buttons.h"
 #include "xvt_runtime/runtime/flight_task.h"
 #include "xvt_runtime/runtime/port.h"
@@ -22,25 +23,26 @@
 #include <string.h>
 
 enum {
-	TOUCH_LEFT = 0,
-	TOUCH_RIGHT,
-	TOUCH_FIRE,
-	TOUCH_FRONT,
-	TOUCH_NEXT,
-	TOUCH_ATTACKER,
-	TOUCH_WEAPONS,
-	TOUCH_RATE,
-	TOUCH_SHIELDS,
-	TOUCH_WEAPON_ENERGY,
-	TOUCH_SHIELD_ENERGY,
-	TOUCH_THROTTLE_UP,
-	TOUCH_THROTTLE_DOWN,
-	TOUCH_MAP,
-	TOUCH_ESC,
-	TOUCH_COUNT
+	TOUCH_LEFT = XVT_TOUCH_CONTROL_LEFT,
+	TOUCH_RIGHT = XVT_TOUCH_CONTROL_RIGHT,
+	TOUCH_FIRE = XVT_TOUCH_CONTROL_FIRE,
+	TOUCH_FRONT = XVT_TOUCH_CONTROL_FRONT,
+	TOUCH_NEXT = XVT_TOUCH_CONTROL_NEXT,
+	TOUCH_ATTACKER = XVT_TOUCH_CONTROL_ATTACKER,
+	TOUCH_WEAPONS = XVT_TOUCH_CONTROL_WEAPONS,
+	TOUCH_RATE = XVT_TOUCH_CONTROL_RATE,
+	TOUCH_SHIELDS = XVT_TOUCH_CONTROL_SHIELDS,
+	TOUCH_WEAPON_ENERGY = XVT_TOUCH_CONTROL_WEAPON_ENERGY,
+	TOUCH_SHIELD_ENERGY = XVT_TOUCH_CONTROL_SHIELD_ENERGY,
+	TOUCH_THROTTLE_UP = XVT_TOUCH_CONTROL_THROTTLE_UP,
+	TOUCH_THROTTLE_DOWN = XVT_TOUCH_CONTROL_THROTTLE_DOWN,
+	TOUCH_MAP = XVT_TOUCH_CONTROL_MAP,
+	TOUCH_ESC = XVT_TOUCH_CONTROL_ESC,
+	TOUCH_EXTRA = XVT_TOUCH_CONTROL_EXTRA,
+	TOUCH_COUNT = XVT_TOUCH_CONTROL_COUNT
 };
 
-enum { TOUCH_PLACE_COUNT_MATCH = 1 / (TOUCH_COUNT == XVT_TOUCH_PLACE_COUNT) };
+enum { TOUCH_PAD_WIDTH = 1 / ((int)SDL_GAMEPAD_BUTTON_COUNT == (int)AERON_GAMEPAD_BUTTON_COUNT) };
 
 enum { TOUCH_FINGER_MAX = 8 };
 
@@ -69,24 +71,8 @@ typedef struct TouchBounds {
 	int ok;
 } TouchBounds;
 
-static const int k_button[TOUCH_COUNT] = {
-	-1,
-	-1,
-	SDL_GAMEPAD_BUTTON_SOUTH,
-	SDL_GAMEPAD_BUTTON_EAST,
-	SDL_GAMEPAD_BUTTON_WEST,
-	SDL_GAMEPAD_BUTTON_NORTH,
-	SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,
-	SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
-	SDL_GAMEPAD_BUTTON_DPAD_LEFT,
-	SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
-	SDL_GAMEPAD_BUTTON_START,
-	SDL_GAMEPAD_BUTTON_DPAD_UP,
-	SDL_GAMEPAD_BUTTON_DPAD_DOWN,
-	SDL_GAMEPAD_BUTTON_LEFT_STICK,
-	SDL_GAMEPAD_BUTTON_BACK,
-};
-
+static uint8_t g_button_cache[SDL_GAMEPAD_BUTTON_COUNT];
+static uint8_t g_button_sent[SDL_GAMEPAD_BUTTON_COUNT];
 static const AeronFontAtlas* g_font;
 static AeronDrawList2D* g_list;
 static AeronRenderTarget* g_target;
@@ -102,8 +88,8 @@ static uint8_t g_logical[TOUCH_COUNT];
 static uint8_t g_pulse[TOUCH_COUNT];
 static Sint16 g_axis_cache[SDL_GAMEPAD_AXIS_COUNT];
 static uint8_t g_axis_sent[SDL_GAMEPAD_AXIS_COUNT];
-static uint8_t g_button_cache[SDL_GAMEPAD_BUTTON_DPAD_RIGHT + 1];
-static uint8_t g_button_sent[SDL_GAMEPAD_BUTTON_DPAD_RIGHT + 1];
+static uint8_t g_direct[XVT_TOUCH_BUTTON_CAP];
+static uint16_t g_direct_action[XVT_TOUCH_BUTTON_CAP];
 static int g_ready, g_show_sticks, g_show_esc, g_model_live, g_logged_active;
 static int g_block_touch_mouse, g_block_until_release;
 static int g_arrange;
@@ -122,6 +108,28 @@ static char g_menu_error[256];
 static int TouchLeftCluster(int index) {
 	return index == TOUCH_LEFT || index == TOUCH_THROTTLE_UP || index == TOUCH_THROTTLE_DOWN ||
 		   index == TOUCH_ESC;
+}
+
+static int TouchSlotPresent(int slot) {
+	const XvtSettings* settings = XvtConfig_Settings();
+	if (!settings || slot < 0 || slot >= XVT_TOUCH_BUTTON_CAP)
+
+		return 0;
+
+	return settings->touch_buttons[slot].present != 0;
+}
+
+static int TouchPad(int control) {
+	int slot;
+	if (control == TOUCH_ESC)
+
+		return SDL_GAMEPAD_BUTTON_BACK;
+	slot = XvtTouchControl_Slot(control);
+	if (slot < 0)
+
+		return -1;
+
+	return XvtTouchButton_Pad(slot);
 }
 
 static void TouchPma(float out[4], float r, float g, float b, float a) {
@@ -279,8 +287,19 @@ static void TouchLoadPlaces(void) {
 	g_place_generation = generation;
 	settings = XvtConfig_Settings();
 	for (int i = 0; i < TOUCH_COUNT; ++i) {
-		g_norm_x[i] = settings ? settings->touch_place_x[i] : -1.0f;
-		g_norm_y[i] = settings ? settings->touch_place_y[i] : -1.0f;
+		int slot = XvtTouchControl_Slot(i);
+		int fixed = XvtTouchControl_Fixed(i);
+		g_norm_x[i] = -1.0f;
+		g_norm_y[i] = -1.0f;
+		if (!settings)
+			continue;
+		if (slot >= 0) {
+			g_norm_x[i] = settings->touch_buttons[slot].x;
+			g_norm_y[i] = settings->touch_buttons[slot].y;
+		} else if (fixed >= 0) {
+			g_norm_x[i] = settings->touch_fixed_x[fixed];
+			g_norm_y[i] = settings->touch_fixed_y[fixed];
+		}
 	}
 }
 
@@ -345,9 +364,10 @@ static int TouchRepeats(int index) {
 	const XvtSettings* settings;
 	XvtInputAction action;
 	if (button < 0)
+
 		return 0;
 	settings = XvtConfig_Settings();
-	action = XvtTouchButton_Resolved(settings ? settings->touch_button : NULL, button);
+	action = settings ? (XvtInputAction)settings->touch_buttons[button].action : XVT_INPUT_ACTION_NONE;
 
 	return action == XVT_INPUT_ACTION_THROTTLE_UP || action == XVT_INPUT_ACTION_THROTTLE_DOWN ||
 		   action == XVT_INPUT_ACTION_THROTTLE_UP_OR_TRACK_MAP_TARGET ||
@@ -384,12 +404,53 @@ static void TouchPlaceSpan(const int* ids, int count, float left, float right, f
 		TouchPlaceControl(ids[i], x + (bw + gap) * (float)i, y, bw, bh, 1);
 }
 
+static int TouchCollectPresent(int* out, const int* ids, int count) {
+	int n = 0;
+	for (int i = 0; i < count; ++i)
+		if (TouchSlotPresent(XvtTouchControl_Slot(ids[i])))
+			out[n++] = ids[i];
+
+	return n;
+}
+
+static void TouchPlaceExtras(float right, float bw, float bh, float gap) {
+	int ids[XVT_TOUCH_BUTTON_CAP];
+	int count = 0;
+	float anchor = g_controls[TOUCH_RIGHT].y;
+	float y;
+	for (int control = 0; control < TOUCH_COUNT; ++control) {
+		if (!g_controls[control].visible || control == TOUCH_LEFT || control == TOUCH_RIGHT ||
+			control == TOUCH_ESC)
+			continue;
+		if (g_controls[control].y < anchor)
+			anchor = g_controls[control].y;
+	}
+	for (int slot = XVT_TOUCH_BUTTON_COUNT; slot < XVT_TOUCH_BUTTON_CAP; ++slot) {
+		if (!TouchSlotPresent(slot))
+			continue;
+		ids[count++] = TOUCH_EXTRA + (slot - XVT_TOUCH_BUTTON_COUNT);
+	}
+	y = anchor - gap - bh;
+	for (int placed = 0; placed < count;) {
+		int row = count - placed;
+		if (row > 6)
+			row = 6;
+		TouchPlaceRow(ids + placed, row, right, y, bw, bh, gap);
+		placed += row;
+		y -= bh + gap;
+	}
+}
+
 static void TouchPlace(const TouchBounds* bounds, float radius) {
 	static const int k_row_top[] = { TOUCH_FRONT, TOUCH_NEXT, TOUCH_ATTACKER, TOUCH_WEAPONS, TOUCH_RATE };
 	static const int k_row_low[] = { TOUCH_SHIELDS, TOUCH_WEAPON_ENERGY, TOUCH_SHIELD_ENERGY, TOUCH_MAP };
+	int row_top[5];
+	int row_low[4];
+	int top_count;
+	int low_count;
 	float margin = radius * 0.2f;
 	float esc_w, esc_h, stick, gap, bw, bh, fire;
-	float width, height;
+	float width, height, row_right;
 	if (margin < 16.0f)
 		margin = 16.0f;
 	esc_w = radius * 1.85f;
@@ -398,6 +459,7 @@ static void TouchPlace(const TouchBounds* bounds, float radius) {
 	if (g_show_esc)
 		TouchPlaceControl(TOUCH_ESC, bounds->left + margin, bounds->top + margin, esc_w, esc_h, 1);
 	if (!g_show_sticks)
+
 		return;
 	stick = radius * 2.0f;
 	gap = radius * 0.14f;
@@ -408,22 +470,36 @@ static void TouchPlace(const TouchBounds* bounds, float radius) {
 	fire = radius * 1.35f;
 	width = bounds->right - bounds->left;
 	height = bounds->bottom - bounds->top;
+	top_count = TouchCollectPresent(row_top, k_row_top, 5);
+	low_count = TouchCollectPresent(row_low, k_row_low, 4);
 	TouchPlaceControl(TOUCH_LEFT, bounds->left + margin, bounds->bottom - margin - stick, stick, stick, 1);
 	TouchPlaceControl(TOUCH_RIGHT, bounds->right - margin - stick, bounds->bottom - margin - stick, stick,
 					  stick, 1);
-	TouchPlaceControl(TOUCH_THROTTLE_UP, g_controls[TOUCH_LEFT].x, g_controls[TOUCH_LEFT].y - gap - bh, bw, bh,
-					  1);
-	TouchPlaceControl(TOUCH_THROTTLE_DOWN, g_controls[TOUCH_LEFT].x + bw + gap,
-					  g_controls[TOUCH_LEFT].y - gap - bh, bw, bh, 1);
-	TouchPlaceControl(TOUCH_FIRE, g_controls[TOUCH_RIGHT].cx - fire * 0.5f,
-					  g_controls[TOUCH_RIGHT].y - gap - fire, fire, fire, 1);
+	if (TouchSlotPresent(XvtTouchControl_Slot(TOUCH_THROTTLE_UP)))
+		TouchPlaceControl(TOUCH_THROTTLE_UP, g_controls[TOUCH_LEFT].x, g_controls[TOUCH_LEFT].y - gap - bh, bw,
+						  bh, 1);
+	if (TouchSlotPresent(XvtTouchControl_Slot(TOUCH_THROTTLE_DOWN)))
+		TouchPlaceControl(TOUCH_THROTTLE_DOWN, g_controls[TOUCH_LEFT].x + bw + gap,
+						  g_controls[TOUCH_LEFT].y - gap - bh, bw, bh, 1);
+	if (TouchSlotPresent(XvtTouchControl_Slot(TOUCH_FIRE)))
+		TouchPlaceControl(TOUCH_FIRE, g_controls[TOUCH_RIGHT].cx - fire * 0.5f,
+						  g_controls[TOUCH_RIGHT].y - gap - fire, fire, fire, 1);
+	row_right = g_controls[TOUCH_RIGHT].x + g_controls[TOUCH_RIGHT].w;
 	if (width > height * 1.35f) {
-		float inner_left = g_controls[TOUCH_THROTTLE_DOWN].x + g_controls[TOUCH_THROTTLE_DOWN].w + gap;
-		float inner_right = g_controls[TOUCH_FIRE].x - gap;
-		float occupied = g_controls[TOUCH_FIRE].y;
+		float inner_left = g_controls[TOUCH_LEFT].x + g_controls[TOUCH_LEFT].w + gap;
+		float inner_right = g_controls[TOUCH_RIGHT].x - gap;
+		float occupied = g_controls[TOUCH_RIGHT].y;
 		float top_limit = bounds->top + margin;
 		float y0, y1;
-		if (g_controls[TOUCH_THROTTLE_UP].y < occupied)
+		if (g_controls[TOUCH_THROTTLE_DOWN].visible)
+			inner_left = g_controls[TOUCH_THROTTLE_DOWN].x + g_controls[TOUCH_THROTTLE_DOWN].w + gap;
+		else if (g_controls[TOUCH_THROTTLE_UP].visible)
+			inner_left = g_controls[TOUCH_THROTTLE_UP].x + g_controls[TOUCH_THROTTLE_UP].w + gap;
+		if (g_controls[TOUCH_FIRE].visible) {
+			inner_right = g_controls[TOUCH_FIRE].x - gap;
+			occupied = g_controls[TOUCH_FIRE].y;
+		}
+		if (g_controls[TOUCH_THROTTLE_UP].visible && g_controls[TOUCH_THROTTLE_UP].y < occupied)
 			occupied = g_controls[TOUCH_THROTTLE_UP].y;
 		if (g_show_esc && g_controls[TOUCH_ESC].visible)
 			top_limit = g_controls[TOUCH_ESC].y + g_controls[TOUCH_ESC].h + gap;
@@ -434,19 +510,19 @@ static void TouchPlace(const TouchBounds* bounds, float radius) {
 			y1 = y0 + bh + gap;
 		}
 		if (inner_right > inner_left + bh * 4.0f) {
-			TouchPlaceSpan(k_row_top, 5, inner_left, inner_right, y0, bh, gap);
-			TouchPlaceSpan(k_row_low, 4, inner_left, inner_right, y1, bh, gap);
+			TouchPlaceSpan(row_top, top_count, inner_left, inner_right, y0, bh, gap);
+			TouchPlaceSpan(row_low, low_count, inner_left, inner_right, y1, bh, gap);
 		} else {
-			float row_right = g_controls[TOUCH_RIGHT].x + g_controls[TOUCH_RIGHT].w;
-			TouchPlaceRow(k_row_low, 4, row_right, y1, bw, bh, gap);
-			TouchPlaceRow(k_row_top, 5, row_right, y0, bw, bh, gap);
+			TouchPlaceRow(row_low, low_count, row_right, y1, bw, bh, gap);
+			TouchPlaceRow(row_top, top_count, row_right, y0, bw, bh, gap);
 		}
 	} else {
-		float row_right = g_controls[TOUCH_RIGHT].x + g_controls[TOUCH_RIGHT].w;
-		float y_low = g_controls[TOUCH_FIRE].y - gap - bh;
-		TouchPlaceRow(k_row_low, 4, row_right, y_low, bw, bh, gap);
-		TouchPlaceRow(k_row_top, 5, row_right, y_low - gap - bh, bw, bh, gap);
+		float y_low =
+			(g_controls[TOUCH_FIRE].visible ? g_controls[TOUCH_FIRE].y : g_controls[TOUCH_RIGHT].y) - gap - bh;
+		TouchPlaceRow(row_low, low_count, row_right, y_low, bw, bh, gap);
+		TouchPlaceRow(row_top, top_count, row_right, y_low - gap - bh, bw, bh, gap);
 	}
+	TouchPlaceExtras(row_right, bw, bh, gap);
 }
 
 static int TouchLayout(void) {
@@ -570,7 +646,7 @@ static void TouchSetAxis(int axis, Sint16 value) {
 
 static void TouchSetButton(int button, int down) {
 	Uint8 value;
-	if (!g_joystick || button < 0 || button > SDL_GAMEPAD_BUTTON_DPAD_RIGHT)
+	if (!g_joystick || button < 0 || button >= SDL_GAMEPAD_BUTTON_COUNT)
 		return;
 	value = down ? 1 : 0;
 	if (g_button_sent[button] && g_button_cache[button] == value)
@@ -613,9 +689,37 @@ static void TouchStick(int index, float* x, float* y) {
 	}
 }
 
+static void TouchReleaseDirect(void) {
+	for (int slot = 0; slot < XVT_TOUCH_BUTTON_CAP; ++slot) {
+		if (!g_direct[slot])
+			continue;
+		XvtControllerMapping_ReportAction((XvtInputAction)g_direct_action[slot], 0);
+		g_direct[slot] = 0;
+	}
+}
+
+static void TouchReportDirect(int slot, int action, int down) {
+	if (slot < 0 || slot >= XVT_TOUCH_BUTTON_CAP)
+
+		return;
+	if (g_direct[slot] && (int)g_direct_action[slot] != action) {
+		XvtControllerMapping_ReportAction((XvtInputAction)g_direct_action[slot], 0);
+		g_direct[slot] = 0;
+	}
+	if (down == g_direct[slot])
+
+		return;
+	if (action > XVT_INPUT_ACTION_NONE)
+		XvtControllerMapping_ReportAction((XvtInputAction)action, down);
+	g_direct[slot] = (uint8_t)down;
+	g_direct_action[slot] = (uint16_t)action;
+}
+
 static void TouchWriteOutputs(void) {
 	float left_x = 0.0f, left_y = 0.0f, right_x = 0.0f, right_y = 0.0f;
+	const XvtSettings* settings = XvtConfig_Settings();
 	if (!g_joystick)
+
 		return;
 	if (g_arrange) {
 		TouchSetAxis(SDL_GAMEPAD_AXIS_LEFTX, 0);
@@ -624,9 +728,9 @@ static void TouchWriteOutputs(void) {
 		TouchSetAxis(SDL_GAMEPAD_AXIS_RIGHTY, 0);
 		TouchSetAxis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_JOYSTICK_AXIS_MIN);
 		TouchSetAxis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, SDL_JOYSTICK_AXIS_MIN);
-		for (int i = 0; i < TOUCH_COUNT; ++i)
-			if (k_button[i] >= 0)
-				TouchSetButton(k_button[i], 0);
+		for (int button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; ++button)
+			TouchSetButton(button, 0);
+		TouchReleaseDirect();
 
 		return;
 	}
@@ -639,10 +743,15 @@ static void TouchWriteOutputs(void) {
 	TouchSetAxis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_JOYSTICK_AXIS_MIN);
 	TouchSetAxis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, SDL_JOYSTICK_AXIS_MIN);
 	for (int i = 0; i < TOUCH_COUNT; ++i) {
+		int pad = TouchPad(i);
+		int slot = XvtTouchControl_Slot(i);
 		int down = 0;
-		if (k_button[i] < 0)
+		int action = XVT_INPUT_ACTION_NONE;
+		if (pad < 0 && slot < 0)
 			continue;
-		if (!g_controls[i].visible) {
+		if (slot >= 0 && settings)
+			action = settings->touch_buttons[slot].action;
+		if (!g_controls[i].visible || (slot >= 0 && !TouchSlotPresent(slot))) {
 			g_logical[i] = 0;
 			g_pulse[i] = 0;
 			g_throttle_phase[i] = 0;
@@ -651,7 +760,10 @@ static void TouchWriteOutputs(void) {
 		} else {
 			down = g_logical[i] || g_pulse[i];
 		}
-		TouchSetButton(k_button[i], down);
+		if (pad >= 0)
+			TouchSetButton(pad, down);
+		else
+			TouchReportDirect(slot, action, down);
 	}
 }
 
@@ -803,8 +915,11 @@ static void TouchApplyButtons(XvtControllerProfile* profile) {
 	if (!profile || !settings)
 		return;
 	memset(owned, 0, sizeof owned);
-	for (int i = 0; i < XVT_TOUCH_BUTTON_COUNT; ++i) {
-		int button = XvtTouchButton_Gamepad(i);
+	for (int slot = 0; slot < XVT_TOUCH_BUTTON_CAP; ++slot) {
+		int button;
+		if (!settings->touch_buttons[slot].present)
+			continue;
+		button = XvtTouchButton_Pad(slot);
 		if (button >= 0 && button < AERON_GAMEPAD_BUTTON_COUNT)
 			owned[button] = 1;
 	}
@@ -816,9 +931,12 @@ static void TouchApplyButtons(XvtControllerProfile* profile) {
 		profile->bindings[write++] = profile->bindings[i];
 	}
 	profile->binding_count = write;
-	for (int i = 0; i < XVT_TOUCH_BUTTON_COUNT; ++i) {
+	for (int slot = 0; slot < XVT_TOUCH_BUTTON_CAP; ++slot) {
 		AeronControllerDigitalSource source;
-		int button = XvtTouchButton_Gamepad(i);
+		int button;
+		if (!settings->touch_buttons[slot].present)
+			continue;
+		button = XvtTouchButton_Pad(slot);
 		if (button < 0 || profile->binding_count >= XVT_CONTROLLER_BINDING_CAP)
 			continue;
 		memset(&source, 0, sizeof source);
@@ -826,7 +944,7 @@ static void TouchApplyButtons(XvtControllerProfile* profile) {
 		source.index = (uint8_t)button;
 		source.threshold = 0.5f;
 		profile->bindings[profile->binding_count].source = source;
-		profile->bindings[profile->binding_count].action = XvtTouchButton_Resolved(settings->touch_button, i);
+		profile->bindings[profile->binding_count].action = (XvtInputAction)settings->touch_buttons[slot].action;
 		profile->binding_count++;
 	}
 }
@@ -887,8 +1005,8 @@ static int TouchAttach(void) {
 	desc.product_id = 0x4F58;
 	desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
 	desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1u;
-	desc.nbuttons = SDL_GAMEPAD_BUTTON_DPAD_RIGHT + 1;
-	desc.button_mask = (1u << desc.nbuttons) - 1u;
+	desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+	desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1u;
 	desc.name = name;
 	desc.Update = TouchVirtualUpdate;
 	g_id = SDL_AttachVirtualJoystick(&desc);
@@ -991,13 +1109,20 @@ static void TouchAddLabel(const TouchControl* control, const char* label) {
 }
 
 static int TouchButtonIndex(int control) {
-	if (control < 0 || control >= TOUCH_COUNT || k_button[control] < 0)
-		return -1;
-	for (int i = 0; i < XVT_TOUCH_BUTTON_COUNT; ++i)
-		if (XvtTouchButton_Gamepad(i) == k_button[control])
-			return i;
+	int slot = XvtTouchControl_Slot(control);
+	if (slot < 0 || !TouchSlotPresent(slot))
 
-	return -1;
+		return -1;
+
+	return slot;
+}
+
+static const char* TouchSlotName(int slot, XvtInputAction action) {
+	if (slot >= 0 && slot < XVT_TOUCH_BUTTON_COUNT && action == XvtTouchButton_Default(slot))
+
+		return XvtTouchButton_Label(slot);
+
+	return XvtInputActions_DisplayName(action);
 }
 
 static const char* TouchLabel(int control) {
@@ -1007,13 +1132,12 @@ static const char* TouchLabel(int control) {
 	if (control == TOUCH_ESC)
 		return g_arrange ? "Done" : "ESC";
 	if (button < 0)
+
 		return NULL;
 	settings = XvtConfig_Settings();
-	action = XvtTouchButton_Resolved(settings ? settings->touch_button : NULL, button);
-	if (action == XvtTouchButton_Default(button))
-		return XvtTouchButton_Label(button);
+	action = settings ? (XvtInputAction)settings->touch_buttons[button].action : XVT_INPUT_ACTION_NONE;
 
-	return XvtInputActions_DisplayName(action);
+	return TouchSlotName(button, action);
 }
 
 static void TouchPaint(void) {
@@ -1095,6 +1219,7 @@ void XvtTouchControls_Init(const struct AeronFontAtlas* font) {
 void XvtTouchControls_Shutdown(void) {
 	g_arrange = 0;
 	XvtPort_SetSimulationHeld(0);
+	TouchReleaseDirect();
 	if (!g_ready && !g_id && !g_list && !g_target)
 
 		return;
@@ -1309,8 +1434,9 @@ void XvtTouchControls_DrawMenu(struct AeronUiContext* ui, const AeronInputSnapsh
 					 "sticks available with a gamepad. Off hides the sticks. In the Duo laptop pose the "
 					 "game stays on the upper half and these controls fill the lower half.");
 	AeronUi_Header(ui, "Buttons");
-	AeronUi_Help(ui, "Each button can send another command. ESC stays the menu button. Hold T+ or T- "
-					 "to change speed gradually.");
+	AeronUi_Help(ui, "Select a button to change its command or remove it. Add Button adds one, up to 32. "
+					 "ESC stays the menu button and cannot be removed or changed. Hold T+ or T- to change "
+					 "speed gradually.");
 	if (AeronUi_Button(ui, "Move Controls")) {
 		g_arrange = 1;
 		XvtSettingsMenu_RequestClose();
@@ -1345,16 +1471,46 @@ void XvtTouchControls_DrawMenu(struct AeronUiContext* ui, const AeronInputSnapsh
 		else
 			snprintf(g_menu_error, sizeof g_menu_error, "%s", error);
 	}
-	for (int i = 0; i < XVT_TOUCH_BUTTON_COUNT; ++i) {
-		char label[160];
-		XvtInputAction action = XvtTouchButton_Resolved(settings ? settings->touch_button : NULL, i);
-		snprintf(label, sizeof label, "%s  %s##touch-button-%s", XvtTouchButton_Label(i),
-				 XvtInputActions_DisplayName(action), XvtTouchButton_Key(i));
+	for (int i = 0; i < XVT_TOUCH_BUTTON_CAP; ++i) {
+		char label[192];
+		XvtInputAction action;
+		const char* name;
+		const char* command;
+		if (!settings || !settings->touch_buttons[i].present)
+			continue;
+		action = (XvtInputAction)settings->touch_buttons[i].action;
+		name = TouchSlotName(i, action);
+		command = XvtInputActions_DisplayName(action);
+		if (name == command)
+			snprintf(label, sizeof label, "%s##touch-slot-%d", command, i);
+		else
+			snprintf(label, sizeof label, "%s  %s##touch-slot-%d", name, command, i);
 		if (AeronUi_Button(ui, label)) {
 			g_bind_open = 1;
 			g_bind_index = i;
 			g_bind_category = (int)XvtInputActions_Category(action);
 			g_bind_selected = SIZE_MAX;
+		}
+	}
+	{
+		int present = settings ? XvtTouchButtons_PresentCount(settings->touch_buttons) : 0;
+		if (present >= XVT_TOUCH_BUTTON_CAP)
+			AeronUi_Help(ui, "32 buttons is the limit.");
+		if (AeronUi_ButtonEnabled(ui, "Add Button", present < XVT_TOUCH_BUTTON_CAP)) {
+			char error[256];
+			int slot = -1;
+			if (XvtConfig_AddTouchButton(&slot, error, sizeof error)) {
+				const XvtSettings* updated = XvtConfig_Settings();
+				XvtInputAction action = updated ? (XvtInputAction)updated->touch_buttons[slot].action
+												: XVT_INPUT_ACTION_FIRE_WEAPON;
+				g_menu_error[0] = 0;
+				g_bind_open = 1;
+				g_bind_index = slot;
+				g_bind_category = (int)XvtInputActions_Category(action);
+				g_bind_selected = SIZE_MAX;
+			} else {
+				snprintf(g_menu_error, sizeof g_menu_error, "%s", error);
+			}
 		}
 	}
 	if (AeronUi_Button(ui, "Restore Button Defaults")) {
@@ -1364,8 +1520,10 @@ void XvtTouchControls_DrawMenu(struct AeronUiContext* ui, const AeronInputSnapsh
 		else
 			snprintf(g_menu_error, sizeof g_menu_error, "%s", error);
 	}
-	if (g_bind_open && g_bind_index >= 0 && g_bind_index < XVT_TOUCH_BUTTON_COUNT &&
-		AeronUi_BeginModal(ui, XvtTouchButton_Label(g_bind_index), &g_bind_open,
+	if (g_bind_open && settings && g_bind_index >= 0 && g_bind_index < XVT_TOUCH_BUTTON_CAP &&
+		settings->touch_buttons[g_bind_index].present &&
+		AeronUi_BeginModal(ui, TouchSlotName(g_bind_index, (XvtInputAction)settings->touch_buttons[g_bind_index].action),
+						   &g_bind_open,
 						   &(AeronUiWindowDesc) { .width_ref = 760.0f, .height_ref = 720.0f, .centered = 1 })) {
 		static const char* const categories[] = { "Weapons", "Targets", "Throttle", "View",
 												  "Info",    "System",  "Comms" };
@@ -1388,6 +1546,15 @@ void XvtTouchControls_DrawMenu(struct AeronUiContext* ui, const AeronInputSnapsh
 			g_bind_selected < count) {
 			char error[256];
 			if (XvtConfig_SetTouchButton(g_bind_index, (int)items[g_bind_selected].id, error, sizeof error)) {
+				g_menu_error[0] = 0;
+				g_bind_open = 0;
+			} else {
+				snprintf(g_menu_error, sizeof g_menu_error, "%s", error);
+			}
+		}
+		if (AeronUi_Button(ui, "Remove Button")) {
+			char error[256];
+			if (XvtConfig_RemoveTouchButton(g_bind_index, error, sizeof error)) {
 				g_menu_error[0] = 0;
 				g_bind_open = 0;
 			} else {

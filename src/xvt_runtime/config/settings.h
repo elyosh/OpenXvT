@@ -97,12 +97,12 @@ typedef struct XvtSettings {
 	int touch_controls;
 	/* 0 is the shipped solid look. 1 hides the controls. A missing key means 0. */
 	float touch_transparency;
-	/* XVT_INPUT_ACTION_NONE keeps that on-screen button on its shipped command. */
-	int touch_button[XVT_TOUCH_BUTTON_COUNT];
-	/* Center of a dragged control, as a fraction of the touch area.
+	/* Command buttons. Missing config keeps the shipped 12. ESC is not a slot. */
+	XvtTouchButtonSlot touch_buttons[XVT_TOUCH_BUTTON_CAP];
+	/* Center of a dragged stick or ESC, as a fraction of the touch area.
 	 * Negative keeps the shipped position. */
-	float touch_place_x[XVT_TOUCH_PLACE_COUNT];
-	float touch_place_y[XVT_TOUCH_PLACE_COUNT];
+	float touch_fixed_x[XVT_TOUCH_FIXED_COUNT];
+	float touch_fixed_y[XVT_TOUCH_FIXED_COUNT];
 	char game_data[XVT_PATH_CAPACITY];
 	char ui_font[XVT_PATH_CAPACITY];
 	char lobby_url[AERON_DPLAY_DIRECTORY_URL_CAPACITY];

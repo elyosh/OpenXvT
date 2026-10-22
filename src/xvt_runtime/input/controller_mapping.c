@@ -85,6 +85,13 @@ static void XvtControllerMapping_Dispatch(XvtInputAction action, bool pressed) {
 	XvtControllerMapping_DispatchAction(action, pressed);
 }
 
+void XvtControllerMapping_ReportAction(XvtInputAction action, int pressed) {
+	if (action <= XVT_INPUT_ACTION_NONE || action >= XVT_INPUT_ACTION_COUNT)
+
+		return;
+	XvtControllerMapping_Dispatch(action, pressed != 0);
+}
+
 const AeronControllerSnapshot* XvtControllerMapping_Resolve(const XvtControllerModel* model,
 															const AeronInputSnapshot* input,
 															uint32_t preferred) {

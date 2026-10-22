@@ -227,9 +227,10 @@ static int XvtSettings_ReadDisplay(const AeronConfigFile* document, XvtPresentat
 int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* scene_defaults,
 					  XvtSettings* out, char* error, size_t capacity) {
 	XvtSettings candidate = { 0 };
-	for (int place = 0; place < XVT_TOUCH_PLACE_COUNT; ++place) {
-		candidate.touch_place_x[place] = -1.0f;
-		candidate.touch_place_y[place] = -1.0f;
+	XvtTouchButtons_Reset(candidate.touch_buttons);
+	for (int place = 0; place < XVT_TOUCH_FIXED_COUNT; ++place) {
+		candidate.touch_fixed_x[place] = -1.0f;
+		candidate.touch_fixed_y[place] = -1.0f;
 	}
 	AeronConfigError detail;
 	static const char* const flight_rates[] = { "native", "unlocked" };
@@ -299,7 +300,54 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 	}
 	{
 		const AeronConfigNode* buttons = AeronConfigFile_GetNode(document, "input.touch_buttons");
-		if (buttons) {
+		int listed = 0;
+		if (buttons && AeronConfigNode_Type(buttons) == AERON_CONFIG_SEQUENCE) {
+			listed = 1;
+			for (int slot = 0; slot < XVT_TOUCH_BUTTON_CAP; ++slot) {
+				candidate.touch_buttons[slot].present = 0;
+				candidate.touch_buttons[slot].action = XVT_INPUT_ACTION_NONE;
+				candidate.touch_buttons[slot].x = -1.0f;
+				candidate.touch_buttons[slot].y = -1.0f;
+			}
+			for (size_t i = 0; i < AeronConfigNode_SequenceCount(buttons); ++i) {
+				const AeronConfigNode* item = AeronConfigNode_SequenceGet(buttons, i);
+				const AeronConfigNode* slot_node;
+				const AeronConfigNode* action_node;
+				const AeronConfigNode* x_node;
+				const AeronConfigNode* y_node;
+				int slot;
+				XvtInputAction action;
+				if (!item || AeronConfigNode_Type(item) != AERON_CONFIG_MAP)
+					return XvtSettings_NodeError(document, "input.touch_buttons", "expected a button", error,
+												 capacity);
+				slot_node = AeronConfigNode_MapGet(item, "slot");
+				action_node = AeronConfigNode_MapGet(item, "action");
+				slot = (int)AeronConfigNode_Int(slot_node, -1);
+				action = XvtInputActions_FromName(AeronConfigNode_String(action_node, ""));
+				if (slot < 0 || slot >= XVT_TOUCH_BUTTON_CAP)
+					return XvtSettings_NodeError(document, "input.touch_buttons", "unknown touch button", error,
+												 capacity);
+				if (candidate.touch_buttons[slot].present)
+					return XvtSettings_NodeError(document, "input.touch_buttons", "repeated touch button", error,
+												 capacity);
+				if (!XvtInputActions_KeyboardBindable(action))
+					return XvtSettings_NodeError(document, "input.touch_buttons",
+												 "expected a bindable command", error, capacity);
+				candidate.touch_buttons[slot].present = 1;
+				candidate.touch_buttons[slot].action = (int)action;
+				x_node = AeronConfigNode_MapGet(item, "x");
+				y_node = AeronConfigNode_MapGet(item, "y");
+				if (x_node || y_node) {
+					double x = AeronConfigNode_Float(x_node, NAN);
+					double y = AeronConfigNode_Float(y_node, NAN);
+					if (!isfinite(x) || !isfinite(y) || x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0)
+						return XvtSettings_NodeError(document, "input.touch_buttons",
+													 "expected a position from 0 to 1", error, capacity);
+					candidate.touch_buttons[slot].x = (float)x;
+					candidate.touch_buttons[slot].y = (float)y;
+				}
+			}
+		} else if (buttons) {
 			if (AeronConfigNode_Type(buttons) != AERON_CONFIG_MAP)
 				return XvtSettings_NodeError(document, "input.touch_buttons", "expected a button map", error,
 											 capacity);
@@ -307,11 +355,8 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 				const char* key = AeronConfigNode_MapKeyAt(buttons, i);
 				const char* name = AeronConfigNode_String(AeronConfigNode_MapValueAt(buttons, i), "");
 				XvtInputAction action = XvtInputActions_FromName(name);
-				int index = -1;
-				for (int button = 0; button < XVT_TOUCH_BUTTON_COUNT; ++button)
-					if (!strcmp(key, XvtTouchButton_Key(button)))
-						index = button;
-				if (index < 0) {
+				int slot = XvtTouchButton_SlotForKey(key);
+				if (slot < 0) {
 					if (XvtTouchControl_Retired(key))
 						continue;
 					return XvtSettings_NodeError(document, "input.touch_buttons", "unknown touch button", error,
@@ -320,11 +365,9 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 				if (!XvtInputActions_KeyboardBindable(action))
 					return XvtSettings_NodeError(document, "input.touch_buttons",
 												 "expected a bindable command", error, capacity);
-				candidate.touch_button[index] = (int)action;
+				candidate.touch_buttons[slot].action = (int)action;
 			}
 		}
-	}
-	{
 		const AeronConfigNode* layout = AeronConfigFile_GetNode(document, "input.touch_layout");
 		if (layout) {
 			if (AeronConfigNode_Type(layout) != AERON_CONFIG_MAP)
@@ -336,16 +379,16 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 				const AeronConfigNode* x_node;
 				const AeronConfigNode* y_node;
 				double x, y;
-				int index = -1;
-				for (int place = 0; place < XVT_TOUCH_PLACE_COUNT; ++place)
-					if (!strcmp(key, XvtTouchPlace_Key(place)))
-						index = place;
-				if (index < 0) {
+				int slot = XvtTouchButton_SlotForKey(key);
+				int fixed = XvtTouchFixed_Index(key);
+				if (slot < 0 && fixed < 0) {
 					if (XvtTouchControl_Retired(key))
 						continue;
 					return XvtSettings_NodeError(document, "input.touch_layout", "unknown touch control", error,
 												 capacity);
 				}
+				if (slot >= 0 && listed)
+					continue;
 				if (!value || AeronConfigNode_Type(value) != AERON_CONFIG_MAP)
 					return XvtSettings_NodeError(document, "input.touch_layout", "expected a position", error,
 												 capacity);
@@ -356,8 +399,13 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 				if (!isfinite(x) || !isfinite(y) || x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0)
 					return XvtSettings_NodeError(document, "input.touch_layout",
 												 "expected a position from 0 to 1", error, capacity);
-				candidate.touch_place_x[index] = (float)x;
-				candidate.touch_place_y[index] = (float)y;
+				if (fixed >= 0) {
+					candidate.touch_fixed_x[fixed] = (float)x;
+					candidate.touch_fixed_y[fixed] = (float)y;
+				} else {
+					candidate.touch_buttons[slot].x = (float)x;
+					candidate.touch_buttons[slot].y = (float)y;
+				}
 			}
 		}
 	}

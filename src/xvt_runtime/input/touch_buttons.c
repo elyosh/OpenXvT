@@ -26,22 +26,19 @@ static const XvtTouchButtonDesc k_buttons[XVT_TOUCH_BUTTON_COUNT] = {
 	{ "map", "Map", XVT_INPUT_ACTION_INFO_MAP, AERON_GAMEPAD_BUTTON_LEFT_STICK },
 };
 
-static const char* const k_places[XVT_TOUCH_PLACE_COUNT] = {
-	"left",        "right",          "fire",           "front",        "next",
-	"attacker",    "weapons",        "rate",           "shields",      "weapon_energy",
-	"shield_energy", "throttle_up",  "throttle_down",  "map",          "esc",
+static const int k_extra_pad[] = {
+	AERON_GAMEPAD_BUTTON_GUIDE,         AERON_GAMEPAD_BUTTON_RIGHT_STICK,    AERON_GAMEPAD_BUTTON_MISC1,
+	AERON_GAMEPAD_BUTTON_RIGHT_PADDLE1, AERON_GAMEPAD_BUTTON_LEFT_PADDLE1,   AERON_GAMEPAD_BUTTON_RIGHT_PADDLE2,
+	AERON_GAMEPAD_BUTTON_LEFT_PADDLE2,  AERON_GAMEPAD_BUTTON_TOUCHPAD,       AERON_GAMEPAD_BUTTON_MISC2,
+	AERON_GAMEPAD_BUTTON_MISC3,         AERON_GAMEPAD_BUTTON_MISC4,          AERON_GAMEPAD_BUTTON_MISC5,
+	AERON_GAMEPAD_BUTTON_MISC6,
 };
+
+static const char* const k_fixed[XVT_TOUCH_FIXED_COUNT] = { "left", "right", "esc" };
 
 static const char* const k_retired[] = { "mod", "near", "lock", "view", "match", "clear" };
 
 static int XvtTouchButton_Valid(int index) { return index >= 0 && index < XVT_TOUCH_BUTTON_COUNT; }
-
-const char* XvtTouchPlace_Key(int index) {
-	if (index < 0 || index >= XVT_TOUCH_PLACE_COUNT)
-		return "";
-
-	return k_places[index];
-}
 
 const char* XvtTouchButton_Key(int index) {
 	if (!XvtTouchButton_Valid(index))
@@ -71,16 +68,122 @@ int XvtTouchButton_Gamepad(int index) {
 	return k_buttons[index].gamepad;
 }
 
-XvtInputAction XvtTouchButton_Resolved(const int* stored, int index) {
-	XvtInputAction action;
-	if (!XvtTouchButton_Valid(index))
-		return XVT_INPUT_ACTION_NONE;
-	action = stored && stored[index] > XVT_INPUT_ACTION_NONE ? (XvtInputAction)stored[index]
-															 : XvtTouchButton_Default(index);
-	if (!XvtInputActions_KeyboardBindable(action))
-		action = XvtTouchButton_Default(index);
+int XvtTouchButton_Pad(int slot) {
+	int extra;
+	if (XvtTouchButton_Valid(slot))
 
-	return action;
+		return XvtTouchButton_Gamepad(slot);
+	extra = slot - XVT_TOUCH_BUTTON_COUNT;
+	if (extra < 0 || extra >= (int)(sizeof k_extra_pad / sizeof k_extra_pad[0]))
+
+		return -1;
+
+	return k_extra_pad[extra];
+}
+
+int XvtTouchButton_SlotForKey(const char* key) {
+	int slot;
+	if (!key || !key[0])
+
+		return -1;
+	for (slot = 0; slot < XVT_TOUCH_BUTTON_COUNT; ++slot)
+		if (!strcmp(key, XvtTouchButton_Key(slot)))
+
+			return slot;
+
+	return -1;
+}
+
+const char* XvtTouchFixed_Key(int index) {
+	if (index < 0 || index >= XVT_TOUCH_FIXED_COUNT)
+
+		return "";
+
+	return k_fixed[index];
+}
+
+int XvtTouchFixed_Index(const char* key) {
+	int index;
+	if (!key || !key[0])
+
+		return -1;
+	for (index = 0; index < XVT_TOUCH_FIXED_COUNT; ++index)
+		if (!strcmp(key, k_fixed[index]))
+
+			return index;
+
+	return -1;
+}
+
+int XvtTouchControl_Slot(int control) {
+	if (control >= XVT_TOUCH_CONTROL_FIRE && control <= XVT_TOUCH_CONTROL_MAP)
+
+		return control - XVT_TOUCH_CONTROL_FIRE;
+	if (control >= XVT_TOUCH_CONTROL_EXTRA && control < XVT_TOUCH_CONTROL_COUNT)
+
+		return XVT_TOUCH_BUTTON_COUNT + (control - XVT_TOUCH_CONTROL_EXTRA);
+
+	return -1;
+}
+
+int XvtTouchControl_Fixed(int control) {
+	if (control == XVT_TOUCH_CONTROL_LEFT)
+
+		return XVT_TOUCH_FIXED_LEFT;
+	if (control == XVT_TOUCH_CONTROL_RIGHT)
+
+		return XVT_TOUCH_FIXED_RIGHT;
+	if (control == XVT_TOUCH_CONTROL_ESC)
+
+		return XVT_TOUCH_FIXED_ESC;
+
+	return -1;
+}
+
+void XvtTouchButtons_Reset(XvtTouchButtonSlot* slots) {
+	int i;
+	if (!slots)
+
+		return;
+	memset(slots, 0, sizeof(XvtTouchButtonSlot) * XVT_TOUCH_BUTTON_CAP);
+	for (i = 0; i < XVT_TOUCH_BUTTON_CAP; ++i) {
+		slots[i].x = -1.0f;
+		slots[i].y = -1.0f;
+	}
+	for (i = 0; i < XVT_TOUCH_BUTTON_COUNT; ++i) {
+		slots[i].present = 1;
+		slots[i].action = (int)XvtTouchButton_Default(i);
+	}
+}
+
+int XvtTouchButtons_ShippedPresence(const XvtTouchButtonSlot* slots) {
+	int i;
+	if (!slots)
+
+		return 0;
+	for (i = 0; i < XVT_TOUCH_BUTTON_COUNT; ++i)
+		if (!slots[i].present)
+
+			return 0;
+	for (; i < XVT_TOUCH_BUTTON_CAP; ++i)
+		if (slots[i].present)
+
+			return 0;
+
+	return 1;
+}
+
+int XvtTouchButtons_PresentCount(const XvtTouchButtonSlot* slots) {
+	int count = 0;
+	int i;
+	if (!slots)
+
+		return 0;
+	for (i = 0; i < XVT_TOUCH_BUTTON_CAP; ++i)
+		if (slots[i].present)
+			++count;
+
+	return count;
 }
 
 int XvtTouchControl_Retired(const char* key) {

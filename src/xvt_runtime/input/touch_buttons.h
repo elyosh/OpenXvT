@@ -7,18 +7,62 @@
 extern "C" {
 #endif
 
+/* Shipped command buttons, in overlay order. ESC is not one of them. */
 enum { XVT_TOUCH_BUTTON_COUNT = 12 };
-/* On-screen controls that can be dragged, including the sticks and ESC.
- * The order matches the touch overlay. */
-enum { XVT_TOUCH_PLACE_COUNT = 15 };
+/* Present command buttons cannot exceed this. Slots 0..11 keep the shipped positions. */
+enum { XVT_TOUCH_BUTTON_CAP = 32 };
+
+enum {
+	XVT_TOUCH_FIXED_LEFT = 0,
+	XVT_TOUCH_FIXED_RIGHT,
+	XVT_TOUCH_FIXED_ESC,
+	XVT_TOUCH_FIXED_COUNT
+};
+
+/* Overlay controls. FIRE..MAP are slots 0..11. EXTRA begins at slot 12. */
+enum {
+	XVT_TOUCH_CONTROL_LEFT = 0,
+	XVT_TOUCH_CONTROL_RIGHT,
+	XVT_TOUCH_CONTROL_FIRE,
+	XVT_TOUCH_CONTROL_FRONT,
+	XVT_TOUCH_CONTROL_NEXT,
+	XVT_TOUCH_CONTROL_ATTACKER,
+	XVT_TOUCH_CONTROL_WEAPONS,
+	XVT_TOUCH_CONTROL_RATE,
+	XVT_TOUCH_CONTROL_SHIELDS,
+	XVT_TOUCH_CONTROL_WEAPON_ENERGY,
+	XVT_TOUCH_CONTROL_SHIELD_ENERGY,
+	XVT_TOUCH_CONTROL_THROTTLE_UP,
+	XVT_TOUCH_CONTROL_THROTTLE_DOWN,
+	XVT_TOUCH_CONTROL_MAP,
+	XVT_TOUCH_CONTROL_ESC,
+	XVT_TOUCH_CONTROL_EXTRA,
+	XVT_TOUCH_CONTROL_COUNT = XVT_TOUCH_CONTROL_EXTRA + (XVT_TOUCH_BUTTON_CAP - XVT_TOUCH_BUTTON_COUNT)
+};
+
+typedef struct XvtTouchButtonSlot {
+	int present;
+	int action;
+	/* Negative coordinates keep the shipped position. */
+	float x, y;
+} XvtTouchButtonSlot;
 
 const char* XvtTouchButton_Key(int index);
-const char* XvtTouchPlace_Key(int index);
 const char* XvtTouchButton_Label(int index);
 XvtInputAction XvtTouchButton_Default(int index);
 int XvtTouchButton_Gamepad(int index);
-/* stored[index] == XVT_INPUT_ACTION_NONE keeps the shipped command. */
-XvtInputAction XvtTouchButton_Resolved(const int* stored, int index);
+/* Gamepad button for a slot, or -1 when that slot has to report its command directly.
+ * ESC keeps Back, so the last slots do not fit in the gamepad button set. */
+int XvtTouchButton_Pad(int slot);
+int XvtTouchButton_SlotForKey(const char* key);
+const char* XvtTouchFixed_Key(int index);
+int XvtTouchFixed_Index(const char* key);
+int XvtTouchControl_Slot(int control);
+int XvtTouchControl_Fixed(int control);
+void XvtTouchButtons_Reset(XvtTouchButtonSlot* slots);
+/* Slots 0..11 present and the rest empty. Actions may still be rebound. */
+int XvtTouchButtons_ShippedPresence(const XvtTouchButtonSlot* slots);
+int XvtTouchButtons_PresentCount(const XvtTouchButtonSlot* slots);
 /* Nonzero for a control key removed from the shipped layout. Saved configs
  * may still name it. Callers skip the key instead of failing the parse. */
 int XvtTouchControl_Retired(const char* key);

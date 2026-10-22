@@ -32,10 +32,13 @@ bool XvtConfig_SetSkipIntro(bool enabled, char* error, size_t capacity);
 bool XvtConfig_SetTouchControls(int mode, char* error, size_t capacity);
 /* 0 restores the shipped solid look. Values above 1 are rejected. */
 bool XvtConfig_SetTouchTransparency(float transparency, char* error, size_t capacity);
-/* action == XVT_INPUT_ACTION_NONE restores that button's shipped command. */
-bool XvtConfig_SetTouchButton(int index, int action, char* error, size_t capacity);
+/* slot is a present command button. ESC is not a slot. */
+bool XvtConfig_SetTouchButton(int slot, int action, char* error, size_t capacity);
+/* Fills the first empty slot. Fails at XVT_TOUCH_BUTTON_CAP present buttons. */
+bool XvtConfig_AddTouchButton(int* out_slot, char* error, size_t capacity);
+bool XvtConfig_RemoveTouchButton(int slot, char* error, size_t capacity);
 bool XvtConfig_ClearTouchButtons(char* error, size_t capacity);
-/* x or y below zero restores that control's shipped position. */
+/* x and y are indexed by XVT_TOUCH_CONTROL_*. Below zero restores the shipped position. */
 bool XvtConfig_SetTouchPlaces(const float* x, const float* y, char* error, size_t capacity);
 bool XvtConfig_ClearTouchPlaces(char* error, size_t capacity);
 int XvtConfig_Apply(GameConfig* game, char* error, size_t capacity);
