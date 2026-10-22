@@ -315,8 +315,9 @@ target_link_libraries(xvt PRIVATE xvt_remaster)
 if(IOS)
     enable_language(OBJC)
     target_sources(xvt PRIVATE src/xvt_app/installation_picker.m src/xvt_app/duo_pose.m
-                              src/xvt_app/touch_controls.c)
+                              src/xvt_app/ios_screen.m src/xvt_app/touch_controls.c)
     set_source_files_properties(src/xvt_app/installation_picker.m src/xvt_app/duo_pose.m
+                                src/xvt_app/ios_screen.m
                                 PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_link_libraries(xvt PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers")
 endif()

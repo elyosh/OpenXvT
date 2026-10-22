@@ -1,6 +1,7 @@
 #include "xvt_app/application.h"
 
 #include "aeron/compat/host.h"
+#include "xvt_app/ios_screen.h"
 #include "aeron/log.h"
 #include "xvt_app/settings/settings.h"
 #include "xvt_app/setup.h"
@@ -51,6 +52,7 @@ static void XvtApplication_DiscoverControllers(const AeronInputSnapshot* input) 
 
 static int XvtApplication_FrameLoop(void) {
 	while (!XvtPort_ShouldQuit()) {
+		XvtIosScreen_Fill();
 		int32_t delta_us = Aeron_BeginFrame();
 		uint64_t wake_delay_us;
 		uint64_t task_delay_us;
@@ -120,6 +122,7 @@ int XvtApplication_Run(const XvtLaunchOptions* options) {
 		return 1;
 	}
 	XvtStorage_Bind(Aeron_GetVfs());
+	XvtIosScreen_Fill();
 	XvtSetupResult setup_result = XvtSetup_Run(options, &ui, error, sizeof error);
 	if (setup_result != XVT_SETUP_SUCCESS) {
 		if (setup_result == XVT_SETUP_CANCELLED)
@@ -143,6 +146,7 @@ int XvtApplication_Run(const XvtLaunchOptions* options) {
 	}
 	XvtPort_SetSkipIntro(options->skip_intro || XvtConfig_Settings()->skip_intro);
 	if (XvtPort_Init()) {
+		XvtIosScreen_Fill();
 		Aeron_LogInfo("xvt.app", "host ready");
 		exit_code = XvtApplication_FrameLoop();
 	}

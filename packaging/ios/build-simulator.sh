@@ -204,7 +204,7 @@ build_zstd() {
 }
 
 build_sdl() {
-    local expected="${sdl_version} static ${architecture} iphonesimulator ${deployment_target} duo-display-scale"
+    local expected="${sdl_version} static ${architecture} iphonesimulator ${deployment_target} duo-display-scale scene-geometry simulator-metal"
     local stamp="${stamp_dir}/sdl"
     if stamp_current "${stamp}" "${expected}" \
             && [[ -f "${ios_prefix}/lib/libSDL3.a" ]] \
@@ -217,6 +217,10 @@ build_sdl() {
         "release-${sdl_version}" "${source_root}/SDL-${sdl_version}"
     apply_repo_patch "${source_root}/SDL-${sdl_version}" \
         "${repo_root}/packaging/ios/patches/sdl-duo-display-scale.patch"
+    apply_repo_patch "${source_root}/SDL-${sdl_version}" \
+        "${repo_root}/packaging/ios/patches/sdl-ios27-scene-geometry.patch"
+    apply_repo_patch "${source_root}/SDL-${sdl_version}" \
+        "${repo_root}/packaging/ios/patches/sdl-simulator-metal-family.patch"
     cmake -S "${source_root}/SDL-${sdl_version}" \
         -B "${ios_build}/sdl" \
         "${ios_cmake[@]}" \
@@ -424,7 +428,9 @@ verify_application() {
         plutil -extract UISupportedInterfaceOrientations json -o - "${plist}" | grep -q "${sym}"
         plutil -extract 'UISupportedInterfaceOrientations~ipad' json -o - "${plist}" | grep -q "${sym}"
     done
-    if plutil -p "${plist}" | grep -E -q 'UIScreen|UIDevice|statusBarOrientation|UIRequiresFullScreen|LSMinimumSystemVersion'; then
+    plutil -extract UIDeviceFamily json -o - "${plist}" | tr -d ' \n' | grep -q '\[1,2\]'
+    plutil -extract UIRequiresFullScreen raw -o - "${plist}" | grep -q '^true$'
+    if plutil -p "${plist}" | grep -E -q 'UIScreen|UIDevice[^F]|statusBarOrientation|LSMinimumSystemVersion'; then
         echo "Info.plist contains a macOS or forbidden iOS key" >&2
         plutil -p "${plist}" >&2
         exit 1
