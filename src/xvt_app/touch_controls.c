@@ -14,6 +14,7 @@
 #include "xvt_runtime/input/touch_buttons.h"
 #include "xvt_runtime/runtime/flight_task.h"
 #include "xvt_runtime/runtime/port.h"
+#include "xvt_runtime/runtime/presentation.h"
 
 #include <SDL3/SDL.h>
 
@@ -34,8 +35,9 @@ enum {
 	TOUCH_SHIELDS = XVT_TOUCH_CONTROL_SHIELDS,
 	TOUCH_WEAPON_ENERGY = XVT_TOUCH_CONTROL_WEAPON_ENERGY,
 	TOUCH_SHIELD_ENERGY = XVT_TOUCH_CONTROL_SHIELD_ENERGY,
-	TOUCH_THROTTLE_UP = XVT_TOUCH_CONTROL_THROTTLE_UP,
-	TOUCH_THROTTLE_DOWN = XVT_TOUCH_CONTROL_THROTTLE_DOWN,
+	TOUCH_THROTTLE_ONE_THIRD = XVT_TOUCH_CONTROL_THROTTLE_ONE_THIRD,
+	TOUCH_THROTTLE_TWO_THIRDS = XVT_TOUCH_CONTROL_THROTTLE_TWO_THIRDS,
+	TOUCH_THROTTLE_FULL = XVT_TOUCH_CONTROL_THROTTLE_FULL,
 	TOUCH_MAP = XVT_TOUCH_CONTROL_MAP,
 	TOUCH_ESC = XVT_TOUCH_CONTROL_ESC,
 	TOUCH_EXTRA = XVT_TOUCH_CONTROL_EXTRA,
@@ -99,15 +101,20 @@ static float g_norm_y[TOUCH_COUNT];
 static float g_opacity = 1.0f;
 static uint8_t g_throttle_phase[TOUCH_COUNT];
 static uint64_t g_throttle_next[TOUCH_COUNT];
-static int g_split_logged;
+static XvtDuoSplit g_logged_split;
+static int g_logged_valid;
 static XvtDuoSplit g_split;
 static int g_bind_open, g_bind_index, g_bind_category;
 static size_t g_bind_selected = SIZE_MAX;
 static char g_menu_error[256];
 
+static int TouchThrottleControl(int index) {
+	return index == TOUCH_THROTTLE_ONE_THIRD || index == TOUCH_THROTTLE_TWO_THIRDS ||
+		   index == TOUCH_THROTTLE_FULL;
+}
+
 static int TouchLeftCluster(int index) {
-	return index == TOUCH_LEFT || index == TOUCH_THROTTLE_UP || index == TOUCH_THROTTLE_DOWN ||
-		   index == TOUCH_ESC;
+	return index == TOUCH_LEFT || TouchThrottleControl(index) || index == TOUCH_ESC;
 }
 
 static int TouchSlotPresent(int slot) {
@@ -169,10 +176,10 @@ static int TouchReadBounds(TouchBounds* out) {
 	scale_x = (float)pixel_w / (float)point_w;
 	scale_y = (float)pixel_h / (float)point_h;
 	if (g_split.active) {
-		left = 0.0f;
-		top = (float)g_split.controls_top;
-		right = (float)pixel_w;
-		bottom = (float)pixel_h;
+		left = (float)g_split.controls.x;
+		top = (float)g_split.controls.y;
+		right = (float)(g_split.controls.x + g_split.controls.width);
+		bottom = (float)(g_split.controls.y + g_split.controls.height);
 	} else {
 		left = 0.0f;
 		top = 0.0f;
@@ -446,6 +453,10 @@ static void TouchPlace(const TouchBounds* bounds, float radius) {
 	static const int k_row_low[] = { TOUCH_SHIELDS, TOUCH_WEAPON_ENERGY, TOUCH_SHIELD_ENERGY, TOUCH_MAP };
 	int row_top[5];
 	int row_low[4];
+	static const int k_throttle[] = { TOUCH_THROTTLE_ONE_THIRD, TOUCH_THROTTLE_TWO_THIRDS,
+									  TOUCH_THROTTLE_FULL };
+	int throttle[3];
+	int throttle_count;
 	int top_count;
 	int low_count;
 	float margin = radius * 0.2f;
@@ -475,11 +486,9 @@ static void TouchPlace(const TouchBounds* bounds, float radius) {
 	TouchPlaceControl(TOUCH_LEFT, bounds->left + margin, bounds->bottom - margin - stick, stick, stick, 1);
 	TouchPlaceControl(TOUCH_RIGHT, bounds->right - margin - stick, bounds->bottom - margin - stick, stick,
 					  stick, 1);
-	if (TouchSlotPresent(XvtTouchControl_Slot(TOUCH_THROTTLE_UP)))
-		TouchPlaceControl(TOUCH_THROTTLE_UP, g_controls[TOUCH_LEFT].x, g_controls[TOUCH_LEFT].y - gap - bh, bw,
-						  bh, 1);
-	if (TouchSlotPresent(XvtTouchControl_Slot(TOUCH_THROTTLE_DOWN)))
-		TouchPlaceControl(TOUCH_THROTTLE_DOWN, g_controls[TOUCH_LEFT].x + bw + gap,
+	throttle_count = TouchCollectPresent(throttle, k_throttle, 3);
+	for (int i = 0; i < throttle_count; ++i)
+		TouchPlaceControl(throttle[i], g_controls[TOUCH_LEFT].x + (bw + gap) * (float)i,
 						  g_controls[TOUCH_LEFT].y - gap - bh, bw, bh, 1);
 	if (TouchSlotPresent(XvtTouchControl_Slot(TOUCH_FIRE)))
 		TouchPlaceControl(TOUCH_FIRE, g_controls[TOUCH_RIGHT].cx - fire * 0.5f,
@@ -491,16 +500,20 @@ static void TouchPlace(const TouchBounds* bounds, float radius) {
 		float occupied = g_controls[TOUCH_RIGHT].y;
 		float top_limit = bounds->top + margin;
 		float y0, y1;
-		if (g_controls[TOUCH_THROTTLE_DOWN].visible)
-			inner_left = g_controls[TOUCH_THROTTLE_DOWN].x + g_controls[TOUCH_THROTTLE_DOWN].w + gap;
-		else if (g_controls[TOUCH_THROTTLE_UP].visible)
-			inner_left = g_controls[TOUCH_THROTTLE_UP].x + g_controls[TOUCH_THROTTLE_UP].w + gap;
 		if (g_controls[TOUCH_FIRE].visible) {
 			inner_right = g_controls[TOUCH_FIRE].x - gap;
 			occupied = g_controls[TOUCH_FIRE].y;
 		}
-		if (g_controls[TOUCH_THROTTLE_UP].visible && g_controls[TOUCH_THROTTLE_UP].y < occupied)
-			occupied = g_controls[TOUCH_THROTTLE_UP].y;
+		for (int i = 0; i < TOUCH_COUNT; ++i) {
+			float right;
+			if (!TouchThrottleControl(i) || !g_controls[i].visible)
+				continue;
+			right = g_controls[i].x + g_controls[i].w + gap;
+			if (right > inner_left)
+				inner_left = right;
+			if (g_controls[i].y < occupied)
+				occupied = g_controls[i].y;
+		}
 		if (g_show_esc && g_controls[TOUCH_ESC].visible)
 			top_limit = g_controls[TOUCH_ESC].y + g_controls[TOUCH_ESC].h + gap;
 		y1 = occupied - gap - bh;
@@ -543,16 +556,20 @@ static int TouchLayout(void) {
 		radius = 170.0f;
 	if (radius < 96.0f)
 		radius = 96.0f;
-	custom = TouchHasCustom();
+	/* Saved positions are normalized to the single flat screen, so they do not
+	 * apply to a pane of a folded Duo. */
+	custom = !g_split.active && TouchHasCustom();
 	for (int attempt = 0; attempt < 8; ++attempt) {
 		TouchPlace(&bounds, radius);
-		TouchApplyPlaces(&bounds);
+		if (custom)
+			TouchApplyPlaces(&bounds);
 		if (custom || TouchLayoutFits(&bounds))
 			return 1;
 		radius *= 0.86f;
 	}
 	TouchPlace(&bounds, radius);
-	TouchApplyPlaces(&bounds);
+	if (custom)
+		TouchApplyPlaces(&bounds);
 	if (!g_show_sticks && g_show_esc) {
 		TouchControl* esc = &g_controls[TOUCH_ESC];
 		if (esc->x < bounds.left)
@@ -842,7 +859,7 @@ static void TouchHandleFinger(const SDL_Event* event) {
 		g_fingers[slot].y = y;
 		if (fabsf(x - g_fingers[slot].origin_x) > 18.0f || fabsf(y - g_fingers[slot].origin_y) > 18.0f)
 			g_fingers[slot].moved = 1;
-		if (g_arrange && g_fingers[slot].control >= 0 && g_bounds.ok) {
+		if (g_arrange && !g_split.active && g_fingers[slot].control >= 0 && g_bounds.ok) {
 			TouchSetCenter(g_fingers[slot].control, x - g_fingers[slot].grab_x, y - g_fingers[slot].grab_y,
 						   &g_bounds);
 			TouchRememberCenter(g_fingers[slot].control, &g_bounds);
@@ -1262,28 +1279,33 @@ void XvtTouchControls_Sync(const AeronInputSnapshot* input) {
 	if (mode != XVT_TOUCH_CONTROLS_ON && mode != XVT_TOUCH_CONTROLS_OFF)
 		mode = XVT_TOUCH_CONTROLS_AUTOMATIC;
 	physical = TouchPhysicalPresent(input);
-	if (!XvtDuoPose_Query(&g_split))
-		g_split.active = 0;
-	if (g_split.active && g_split.pixel_h > g_split.game_bottom)
-		Aeron_SetPresentationInsets(0, 0, 0, g_split.pixel_h - g_split.game_bottom);
-	else {
-		g_split.active = 0;
-		Aeron_SetPresentationInsets(0, 0, 0, 0);
-	}
-	if (g_split_logged != g_split.active) {
-		int point_w = 0;
-		int point_h = 0;
-		AeronRectI content = { 0 };
-		SDL_Window* window = TouchWindow();
-		if (window)
-			SDL_GetWindowSize(window, &point_w, &point_h);
-		Aeron_GetContentPixelRect(&content);
-		Aeron_LogInfo("xvt.input",
-					  "duo laptop split %s game_bottom %d controls_top %d window %dx%d pt %dx%d px content %d %d %d %d",
-					  g_split.active ? "active" : "inactive", g_split.game_bottom, g_split.controls_top, point_w,
-					  point_h, g_split.pixel_w, g_split.pixel_h, content.x, content.y, content.width,
-					  content.height);
-		g_split_logged = g_split.active;
+	{
+		int inset_left = 0;
+		int inset_top = 0;
+		int inset_right = 0;
+		int inset_bottom = 0;
+		XvtDuoPose_Query(&g_split);
+		XvtDuoSplit_Insets(&g_split, &inset_left, &inset_top, &inset_right, &inset_bottom);
+		Aeron_SetPresentationInsets(inset_left, inset_top, inset_right, inset_bottom);
+		XvtPresentation_SyncToAvailable(input ? input->window_width : 0, input ? input->window_height : 0);
+		if (!g_logged_valid || memcmp(&g_logged_split, &g_split, sizeof g_split) != 0) {
+			int point_w = 0;
+			int point_h = 0;
+			AeronRectI content = { 0 };
+			SDL_Window* window = TouchWindow();
+			if (window)
+				SDL_GetWindowSize(window, &point_w, &point_h);
+			Aeron_GetContentPixelRect(&content);
+			Aeron_LogInfo("xvt.input",
+						  "duo split %s game %d %d %d %d controls %d %d %d %d insets %d %d %d %d window %dx%d pt "
+						  "%dx%d px content %d %d %d %d",
+						  g_split.active ? "active" : "inactive", g_split.game.x, g_split.game.y, g_split.game.width,
+						  g_split.game.height, g_split.controls.x, g_split.controls.y, g_split.controls.width,
+						  g_split.controls.height, inset_left, inset_top, inset_right, inset_bottom, point_w, point_h,
+						  g_split.pixel_w, g_split.pixel_h, content.x, content.y, content.width, content.height);
+			g_logged_split = g_split;
+			g_logged_valid = 1;
+		}
 	}
 	menu = XvtSettingsMenu_Open();
 	active = mode == XVT_TOUCH_CONTROLS_ON || (mode == XVT_TOUCH_CONTROLS_AUTOMATIC && !physical);
@@ -1432,16 +1454,20 @@ void XvtTouchControls_DrawMenu(struct AeronUiContext* ui, const AeronInputSnapsh
 		AeronUi_Help(ui, "Sticks are off. ESC stays on screen while no gamepad is connected.");
 	AeronUi_Help(ui, "Automatic shows the sticks and ESC unless a gamepad is connected. On keeps the "
 					 "sticks available with a gamepad. Off hides the sticks. In the Duo laptop pose the "
-					 "game stays on the upper half and these controls fill the lower half.");
+					 "game fills the upper screen and these controls fill the lower screen.");
 	AeronUi_Header(ui, "Buttons");
 	AeronUi_Help(ui, "Select a button to change its command or remove it. Add Button adds one, up to 32. "
-					 "ESC stays the menu button and cannot be removed or changed. Hold T+ or T- to change "
-					 "speed gradually.");
-	if (AeronUi_Button(ui, "Move Controls")) {
+					 "ESC stays the menu button and cannot be removed or changed. Tap 1/3, 2/3, or Full "
+					 "to set the throttle. Add a T+ or T- button for gradual changes, and hold it to keep "
+					 "changing.");
+	if (AeronUi_Button(ui, "Move Controls") && !g_split.active) {
 		g_arrange = 1;
 		XvtSettingsMenu_RequestClose();
 	}
-	AeronUi_Help(ui, "Move Controls lets you drag each control. The mission stays paused until you tap ESC.");
+	if (g_split.active)
+		AeronUi_Help(ui, "Move Controls is unavailable in the laptop pose. Open the Duo flat to move the controls.");
+	else
+		AeronUi_Help(ui, "Move Controls lets you drag each control. The mission stays paused until you tap ESC.");
 	{
 		const XvtSettings* opacity_settings = XvtConfig_Settings();
 		int transparency = 0;

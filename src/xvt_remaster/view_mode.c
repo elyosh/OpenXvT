@@ -41,7 +41,7 @@ static int FlightReady(const XvtRenderSnapshot* s) {
 void XvtRemasterView_BeginFrame(const AeronInputSnapshot* in) {
 	const XvtRenderSnapshot* s = XvtRenderSnapshot_Current();
 	if (in)
-		XvtPresentation_SyncToWindow(in->window_width, in->window_height);
+		XvtPresentation_SyncToAvailable(in->window_width, in->window_height);
 	if (g_consumedTab && in && !in->key_down[AERON_KEY_TAB] && !in->key_released[AERON_KEY_TAB])
 		g_consumedTab = 0;
 	if (in && !g_consumedTab && in->has_focus &&

@@ -21,9 +21,11 @@ static const XvtTouchButtonDesc k_buttons[XVT_TOUCH_BUTTON_COUNT] = {
 	{ "shields", "Shld", XVT_INPUT_ACTION_CYCLE_SHIELD_MODE, AERON_GAMEPAD_BUTTON_DPAD_LEFT },
 	{ "weapon_energy", "W+", XVT_INPUT_ACTION_CYCLE_CANNON_RECHARGE_RATE, AERON_GAMEPAD_BUTTON_DPAD_RIGHT },
 	{ "shield_energy", "S+", XVT_INPUT_ACTION_CYCLE_SHIELD_RECHARGE_RATE, AERON_GAMEPAD_BUTTON_START },
-	{ "throttle_up", "T+", XVT_INPUT_ACTION_THROTTLE_UP, AERON_GAMEPAD_BUTTON_DPAD_UP },
-	{ "throttle_down", "T-", XVT_INPUT_ACTION_THROTTLE_DOWN, AERON_GAMEPAD_BUTTON_DPAD_DOWN },
+	/* Throttle presets report their command directly, so they take no gamepad button. */
+	{ "throttle_one_third", "1/3", XVT_INPUT_ACTION_THROTTLE_ONE_THIRD, -1 },
+	{ "throttle_two_thirds", "2/3", XVT_INPUT_ACTION_THROTTLE_TWO_THIRDS, -1 },
 	{ "map", "Map", XVT_INPUT_ACTION_INFO_MAP, AERON_GAMEPAD_BUTTON_LEFT_STICK },
+	{ "throttle_full", "Full", XVT_INPUT_ACTION_THROTTLE_FULL, -1 },
 };
 
 static const int k_extra_pad[] = {
@@ -36,7 +38,9 @@ static const int k_extra_pad[] = {
 
 static const char* const k_fixed[XVT_TOUCH_FIXED_COUNT] = { "left", "right", "esc" };
 
-static const char* const k_retired[] = { "mod", "near", "lock", "view", "match", "clear" };
+/* T+ and T- left the shipped layout. Saved layouts may still name them. */
+static const char* const k_retired[] = { "mod", "near", "lock", "view", "match", "clear",
+										 "throttle_up", "throttle_down" };
 
 static int XvtTouchButton_Valid(int index) { return index >= 0 && index < XVT_TOUCH_BUTTON_COUNT; }
 
@@ -116,7 +120,7 @@ int XvtTouchFixed_Index(const char* key) {
 }
 
 int XvtTouchControl_Slot(int control) {
-	if (control >= XVT_TOUCH_CONTROL_FIRE && control <= XVT_TOUCH_CONTROL_MAP)
+	if (control >= XVT_TOUCH_CONTROL_FIRE && control <= XVT_TOUCH_CONTROL_THROTTLE_FULL)
 
 		return control - XVT_TOUCH_CONTROL_FIRE;
 	if (control >= XVT_TOUCH_CONTROL_EXTRA && control < XVT_TOUCH_CONTROL_COUNT)

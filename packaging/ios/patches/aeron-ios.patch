@@ -80,10 +80,10 @@ index 41aa374..0bc74e3 100644
      add_library(aeron_video
          src/video.c
 diff --git a/include/aeron/aeron.h b/include/aeron/aeron.h
-index 05fd7b6..be51006 100644
+index 05fd7b6..ff3ca7c 100644
 --- a/include/aeron/aeron.h
 +++ b/include/aeron/aeron.h
-@@ -115,6 +115,12 @@ void Aeron_RaiseWindow(void);
+@@ -115,6 +115,16 @@ void Aeron_RaiseWindow(void);
   * current host frame. This is distinct from logical coordinates and window
   * points, particularly on high-density displays. */
  int Aeron_GetPresentationPixelSize(int* width, int* height);
@@ -93,6 +93,10 @@ index 05fd7b6..be51006 100644
 + * that space. Zero clears that edge. Insets that consume the drawable are
 + * ignored. */
 +void Aeron_SetPresentationInsets(int left, int top, int right, int bottom);
++/* Drawable pixels left after presentation insets, before the aspect fit.
++ * Returns 0 when the drawable is unknown. Returns 1 when the box is the full
++ * drawable. Returns 2 when insets leave a smaller box. */
++int Aeron_GetPresentationAvailablePixelSize(int* width, int* height);
  
  /* Returns the current immutable input snapshot for this frame. */
  const AeronInputSnapshot* Aeron_InputSnapshot(void);
@@ -340,10 +344,64 @@ index 382ba87..89d9f1e 100644
  
  	if (interactive && ctx->mouse_present && ctx->mouse_x < rect.x + content_w &&
 diff --git a/src/window.c b/src/window.c
-index 502d375..cbbfe4f 100644
+index 502d375..f206466 100644
 --- a/src/window.c
 +++ b/src/window.c
-@@ -353,9 +353,56 @@ int Aeron_SetRelativeMouseMode(int enabled) {
+@@ -28,15 +28,24 @@ int Aeron_WindowInit(const AeronConfig* config) {
+ 		g_aeron.presentation_mode = AERON_PRESENTATION_STRETCH;
+ 	}
+ 
+-	/* Auto-size when the config gives no explicit window size: ~90% of
+-	 * the primary display's usable area (excludes menu bar / taskbar),
+-	 * locked to the logical aspect ratio. Falls back to 640x480. */
++	/* Auto-size when the config gives no explicit window size. Desktop
++	 * uses ~90% of the usable area at the logical aspect. iOS uses the
++	 * full display. A 4:3 card there is a floating window on iPadOS. */
+ 	if (width <= 0 || height <= 0) {
+ 		SDL_Rect      bounds;
+-		SDL_DisplayID display   = SDL_GetPrimaryDisplay();
+-		int           logical_w = config && config->logical_width > 0 ? config->logical_width : 640;
+-		int           logical_h = config && config->logical_height > 0 ? config->logical_height : 480;
++		SDL_DisplayID display = SDL_GetPrimaryDisplay();
+ 
++#ifdef SDL_PLATFORM_IOS
++		if (display != 0 && SDL_GetDisplayBounds(display, &bounds) && bounds.w > 0 && bounds.h > 0) {
++			width  = bounds.w;
++			height = bounds.h;
++		} else {
++			width  = 640;
++			height = 480;
++		}
++#else
++		int logical_w = config && config->logical_width > 0 ? config->logical_width : 640;
++		int logical_h = config && config->logical_height > 0 ? config->logical_height : 480;
+ 		if (display != 0 && SDL_GetDisplayUsableBounds(display, &bounds) && bounds.w > 0 && bounds.h > 0) {
+ 			int target_h = (bounds.h * 9) / 10;
+ 			int target_w = (int)(((int64_t)target_h * logical_w) / logical_h);
+@@ -51,6 +60,7 @@ int Aeron_WindowInit(const AeronConfig* config) {
+ 			width  = 640;
+ 			height = 480;
+ 		}
++#endif
+ 	}
+ 
+ 	g_aeron.logical_width  = config && config->logical_width > 0 ? config->logical_width : width;
+@@ -62,8 +72,12 @@ int Aeron_WindowInit(const AeronConfig* config) {
+ 	 * is point-sized and the OS upscales — visibly soft output. All
+ 	 * Aeron mouse/window math stays in points; only Aeron_Present's
+ 	 * swapchain-measured presentation rect sees pixels. */
+-	g_aeron.window =
+-		SDL_CreateWindow(title, width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
++#ifdef SDL_PLATFORM_IOS
++	g_aeron.window = SDL_CreateWindow(title, width, height,
++									  SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
++#else
++	g_aeron.window = SDL_CreateWindow(title, width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
++#endif
+ 	if (!g_aeron.window) {
+ 		Aeron_LogError("aeron", "SDL_CreateWindow failed: %s", SDL_GetError());
+ 		return 0;
+@@ -353,9 +367,109 @@ int Aeron_SetRelativeMouseMode(int enabled) {
  
  int Aeron_RelativeMouseMode(void) { return g_aeron.relative_mouse_enabled; }
  
@@ -386,6 +444,63 @@ index 502d375..cbbfe4f 100644
 +	*bottom = (int)(((int64_t)*bottom * container_height) / g_aeron.presentation_inset_ref_height);
 +}
 +
++/* Returns 1 when insets leave a usable strict subset of the container. */
++static int Aeron_PresentationAvailableBox(int container_width, int container_height, int* origin_x, int* origin_y,
++										  int* avail_width, int* avail_height) {
++	int inset_left;
++	int inset_top;
++	int inset_right;
++	int inset_bottom;
++
++	Aeron_ScaledPresentationInsets(container_width, container_height, &inset_left, &inset_top, &inset_right,
++								   &inset_bottom);
++	*origin_x     = inset_left;
++	*origin_y     = inset_top;
++	*avail_width  = container_width - *origin_x - inset_right;
++	*avail_height = container_height - *origin_y - inset_bottom;
++	if (*avail_width < 1 || *avail_height < 1) {
++		*origin_x     = 0;
++		*origin_y     = 0;
++		*avail_width  = container_width;
++		*avail_height = container_height;
++
++		return 0;
++	}
++
++	return *avail_width != container_width || *avail_height != container_height;
++}
++
++int Aeron_GetPresentationAvailablePixelSize(int* width, int* height) {
++	int pixel_w     = 0;
++	int pixel_h     = 0;
++	int origin_x    = 0;
++	int origin_y    = 0;
++	int avail_width = 0;
++	int avail_height = 0;
++	int subset;
++
++	if (width) {
++		*width = 0;
++	}
++	if (height) {
++		*height = 0;
++	}
++	if (!g_aeron.window || !SDL_GetWindowSizeInPixels(g_aeron.window, &pixel_w, &pixel_h) || pixel_w <= 0 ||
++		pixel_h <= 0) {
++
++		return 0;
++	}
++	subset = Aeron_PresentationAvailableBox(pixel_w, pixel_h, &origin_x, &origin_y, &avail_width, &avail_height);
++	if (width) {
++		*width = avail_width;
++	}
++	if (height) {
++		*height = avail_height;
++	}
++
++	return subset ? 2 : 1;
++}
++
  void Aeron_ComputePresentationRect(int container_width, int container_height, SDL_Rect* rect) {
  	int64_t content_width;
  	int64_t content_height;
@@ -393,38 +508,24 @@ index 502d375..cbbfe4f 100644
 +	int     origin_y;
 +	int     avail_width;
 +	int     avail_height;
-+	int     inset_left;
-+	int     inset_top;
-+	int     inset_right;
-+	int     inset_bottom;
  
  	if (!rect) {
  		return;
-@@ -369,8 +416,21 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
+@@ -369,8 +483,11 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
  		return;
  	}
  
 -	content_width  = container_width;
 -	content_height = container_height;
-+	Aeron_ScaledPresentationInsets(container_width, container_height, &inset_left, &inset_top, &inset_right,
-+								   &inset_bottom);
-+	origin_x     = inset_left;
-+	origin_y     = inset_top;
-+	avail_width  = container_width - origin_x - inset_right;
-+	avail_height = container_height - origin_y - inset_bottom;
-+	if (avail_width < 1 || avail_height < 1) {
-+		origin_x     = 0;
-+		origin_y     = 0;
-+		avail_width  = container_width;
-+		avail_height = container_height;
-+	}
++	Aeron_PresentationAvailableBox(container_width, container_height, &origin_x, &origin_y, &avail_width,
++								   &avail_height);
 +
 +	content_width  = avail_width;
 +	content_height = avail_height;
  	if (g_aeron.presentation_mode == AERON_PRESENTATION_ASPECT_FIT) {
  		if (content_width * g_aeron.logical_height > content_height * g_aeron.logical_width) {
  			content_width = (content_height * g_aeron.logical_width) / g_aeron.logical_height;
-@@ -382,11 +442,11 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
+@@ -382,11 +499,11 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
  		 * produce hairline bars — and lose exact coverage, which direct
  		 * swapchain rendering requires. Snap sub-1/256 shortfalls to full
  		 * coverage */
@@ -440,7 +541,7 @@ index 502d375..cbbfe4f 100644
  		}
  	}
  
-@@ -399,6 +459,6 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
+@@ -399,6 +516,6 @@ void Aeron_ComputePresentationRect(int container_width, int container_height, SD
  
  	rect->w = (int)content_width;
  	rect->h = (int)content_height;

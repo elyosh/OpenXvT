@@ -8,8 +8,8 @@ extern "C" {
 #endif
 
 /* Shipped command buttons, in overlay order. ESC is not one of them. */
-enum { XVT_TOUCH_BUTTON_COUNT = 12 };
-/* Present command buttons cannot exceed this. Slots 0..11 keep the shipped positions. */
+enum { XVT_TOUCH_BUTTON_COUNT = 13 };
+/* Present command buttons cannot exceed this. Slots 0..12 keep the shipped positions. */
 enum { XVT_TOUCH_BUTTON_CAP = 32 };
 
 enum {
@@ -19,7 +19,7 @@ enum {
 	XVT_TOUCH_FIXED_COUNT
 };
 
-/* Overlay controls. FIRE..MAP are slots 0..11. EXTRA begins at slot 12. */
+/* Overlay controls. FIRE..THROTTLE_FULL are slots 0..12. EXTRA begins at slot 13. */
 enum {
 	XVT_TOUCH_CONTROL_LEFT = 0,
 	XVT_TOUCH_CONTROL_RIGHT,
@@ -32,9 +32,10 @@ enum {
 	XVT_TOUCH_CONTROL_SHIELDS,
 	XVT_TOUCH_CONTROL_WEAPON_ENERGY,
 	XVT_TOUCH_CONTROL_SHIELD_ENERGY,
-	XVT_TOUCH_CONTROL_THROTTLE_UP,
-	XVT_TOUCH_CONTROL_THROTTLE_DOWN,
+	XVT_TOUCH_CONTROL_THROTTLE_ONE_THIRD,
+	XVT_TOUCH_CONTROL_THROTTLE_TWO_THIRDS,
 	XVT_TOUCH_CONTROL_MAP,
+	XVT_TOUCH_CONTROL_THROTTLE_FULL,
 	XVT_TOUCH_CONTROL_ESC,
 	XVT_TOUCH_CONTROL_EXTRA,
 	XVT_TOUCH_CONTROL_COUNT = XVT_TOUCH_CONTROL_EXTRA + (XVT_TOUCH_BUTTON_CAP - XVT_TOUCH_BUTTON_COUNT)
@@ -60,7 +61,7 @@ int XvtTouchFixed_Index(const char* key);
 int XvtTouchControl_Slot(int control);
 int XvtTouchControl_Fixed(int control);
 void XvtTouchButtons_Reset(XvtTouchButtonSlot* slots);
-/* Slots 0..11 present and the rest empty. Actions may still be rebound. */
+/* Slots 0..12 present and the rest empty. Actions may still be rebound. */
 int XvtTouchButtons_ShippedPresence(const XvtTouchButtonSlot* slots);
 int XvtTouchButtons_PresentCount(const XvtTouchButtonSlot* slots);
 /* Nonzero for a control key removed from the shipped layout. Saved configs

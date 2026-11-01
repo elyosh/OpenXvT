@@ -16,6 +16,7 @@
 #include "xvt_runtime/runtime/port.h"
 #include "xvt_runtime/snapshot/render_snapshot.h"
 #include "xvt_runtime/storage/storage.h"
+#include <SDL3/SDL.h>
 #include <stdio.h>
 
 static uint64_t XvtApplication_PresentationIntervalUs(void) {
@@ -117,6 +118,12 @@ int XvtApplication_Run(const XvtLaunchOptions* options) {
 	}
 	XvtHostConfig_InitAeron(options, &config);
 	Aeron_LogInfo("xvt.app", "initializing OpenXvT %s host", OPENXVT_VERSION);
+#ifdef SDL_PLATFORM_IOS
+	/* The iOS window is not resizable, so SDL takes its orientation mask from
+	 * the first window size, which is portrait. Naming all three orientations
+	 * lets the scene follow the device on the Duo. */
+	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight Portrait");
+#endif
 	if (!Aeron_Init(&config)) {
 		/* Aeron unwinds its own partial initialization; shutdown is idempotent. */
 		Aeron_Shutdown();
