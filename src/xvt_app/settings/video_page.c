@@ -158,8 +158,15 @@ static void XvtVideoPage_DrawControls(AeronUiContext* ui) {
 
 void XvtVideoPage_Draw(AeronUiContext* ui, const AeronInputSnapshot* input) {
 	(void)input;
-	float height = AeronUi_AvailableHeight(ui) - 140;
-	if (AeronUi_BeginScroll(ui, "Video Settings", height > 180 ? height : 180)) {
+	float available = AeronUi_AvailableHeight(ui);
+	float height = available - 140.0f;
+	/* The settings window already scrolls this page and keeps Close visible. */
+	if (available <= 1.0f) {
+		XvtVideoPage_DrawControls(ui);
+
+		return;
+	}
+	if (AeronUi_BeginScroll(ui, "Video Settings", height > 180.0f ? height : 180.0f)) {
 		XvtVideoPage_DrawControls(ui);
 		AeronUi_EndScroll(ui);
 	}

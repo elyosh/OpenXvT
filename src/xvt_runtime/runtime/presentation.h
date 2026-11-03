@@ -10,7 +10,9 @@ extern "C" {
 #define XVT_CLASSIC_HEIGHT 480
 
 void XvtPresentation_Init(void);
-void XvtPresentation_SyncToWindow(int width, int height);
+/* Logical size tracks the inset box when the drawable is known, otherwise the
+ * fallback window size. Height stays 480. */
+void XvtPresentation_SyncToAvailable(int width, int height);
 AeronRectI XvtPresentation_Frame(void);
 AeronRectI XvtPresentation_ClassicRect(void);
 AeronRectI XvtPresentation_FromClassic(AeronRectI rect);

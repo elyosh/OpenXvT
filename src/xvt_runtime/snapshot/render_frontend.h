@@ -8,6 +8,7 @@ extern "C" {
 void XvtRenderFrontend_Init(void);
 void XvtRenderFrontend_BeginDraw(void);
 void XvtRenderFrontend_TextEntry(int field);
+void XvtRenderFrontend_TextFieldPressed(void);
 unsigned XvtRenderFrontend_Target(void);
 void XvtRenderFrontend_Select(unsigned target);
 void XvtRenderFrontend_Suppress(int begin);

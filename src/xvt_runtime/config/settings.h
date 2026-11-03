@@ -8,6 +8,7 @@
 #include "aeron/temporal.h"
 #include "xvt_runtime/config/mouse_config.h"
 #include "xvt_runtime/input/controller_options.h"
+#include "xvt_runtime/input/touch_buttons.h"
 #include "xvt_runtime/input/keyboard_mapping.h"
 #include "xvt_runtime/storage/storage.h"
 
@@ -83,9 +84,30 @@ typedef struct XvtRenderSettings {
 	float bloom_intensity, explosion_emissive_strength;
 } XvtRenderSettings;
 
+typedef enum XvtTouchControlsMode {
+	XVT_TOUCH_CONTROLS_AUTOMATIC = 0,
+	XVT_TOUCH_CONTROLS_ON = 1,
+	XVT_TOUCH_CONTROLS_OFF = 2
+} XvtTouchControlsMode;
+
 typedef struct XvtSettings {
 	int skip_intro;
 	int flight_unlocked;
+	/* XvtTouchControlsMode. A missing input.touch_controls key means automatic. */
+	int touch_controls;
+	/* 0 is the shipped solid look. 1 hides the controls. A missing key means 0. */
+	float touch_transparency;
+	/* Command buttons. Missing config keeps the shipped 12. ESC is not a slot. */
+	XvtTouchButtonSlot touch_buttons[XVT_TOUCH_BUTTON_CAP];
+	/* Center of a dragged stick or ESC, as a fraction of the touch area.
+	 * Negative keeps the shipped position. */
+	float touch_fixed_x[XVT_TOUCH_FIXED_COUNT];
+	float touch_fixed_y[XVT_TOUCH_FIXED_COUNT];
+	/* Missing key means 0.08. */
+	float touch_stick_deadzone;
+	/* Missing key means 1. */
+	float touch_stick_sensitivity;
+	float touch_fixed_scale[XVT_TOUCH_FIXED_COUNT];
 	char game_data[XVT_PATH_CAPACITY];
 	char ui_font[XVT_PATH_CAPACITY];
 	char lobby_url[AERON_DPLAY_DIRECTORY_URL_CAPACITY];

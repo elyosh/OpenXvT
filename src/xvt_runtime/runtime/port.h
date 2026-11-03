@@ -14,6 +14,8 @@ int XvtPort_IsInitialized(void);
 void XvtPort_Tick(int32_t delta_us);
 void XvtPort_PausedFrame(void);
 void XvtPort_SetSettingsOpen(int open);
+/* Nonzero freezes the simulation the same way an open settings menu does. */
+void XvtPort_SetSimulationHeld(int held);
 void XvtPort_RequestSettings(void);
 int XvtPort_ConsumeSettingsRequest(void);
 int XvtPort_NetworkRequiresProgress(void);

@@ -7,8 +7,8 @@
 
 OpenXvT is an open-source reimplementation of the 1997 game *Star Wars:
 X-Wing vs. TIE Fighter* with its *Balance of Power* expansion for Windows,
-macOS, and Linux. It runs the original game data natively on current systems
-while preserving the original experience and offering optional modern
+macOS, Linux, and iOS. It runs the original game data natively on current
+systems while preserving the original experience and offering optional modern
 enhancements.
 
 > [!IMPORTANT]
@@ -56,6 +56,10 @@ and Y-axis inversion. Flight can be played with a mouse and keyboard, so a
 joystick or gamepad is no longer required. Modern gamepads and joysticks are
 also supported, with configurable axes, deadzones, and button bindings.
 
+iOS builds include full iPhone Duo support and on-screen touch controls.
+Touch controls cover the flight sticks, throttle, weapons, shields, targeting,
+and the map. They can be faded or rearranged from **OpenXvT Settings**.
+
 ## Getting started
 
 1. Download the latest package for your platform from
@@ -91,6 +95,7 @@ OpenXvT --game-data /path/to/xvt-data
 | Windows | x86-64 | Direct3D 12 or Vulkan |
 | macOS | macOS 13 or later; arm64 or x86-64 | Metal |
 | Linux | x86-64; glibc 2.35 or later | Vulkan |
+| iOS | iOS 27.1 or later; iPhone, iPad, and iPhone Duo | Metal |
 
 ## Current state
 
@@ -114,7 +119,7 @@ OpenXvT, OpenTIE, OpenXWA, development, and the Totally Games flight simulators.
 
 - a 64-bit system with a modern GPU
 - a complete installation of *X-Wing vs. TIE Fighter* with *Balance of Power*
-- a mouse and keyboard, gamepad, or joystick for flight
+- a mouse and keyboard, gamepad, joystick, or the on-screen touch controls on iOS
 
 Release packages include the required runtime libraries. Keep the executable,
 libraries, resources, and shader directories together when moving an
@@ -126,5 +131,23 @@ The build requires CMake 3.20 or later, a C/C++ toolchain, SDL3 3.4, zstd,
 FFmpeg, libcurl, pkg-config, and SDL_shadercross. Release packaging pins its
 dependencies and provides the reference for reproducible builds.
 
-Platform-specific instructions for Windows, macOS, and Linux are available in
-the [packaging guide](packaging/README.md).
+Platform-specific instructions for Windows, macOS, Linux, and iOS are available
+in the [packaging guide](packaging/README.md).
+
+### iOS
+
+The iOS script builds an iPhone Simulator app. It needs Xcode with the iOS
+simulator SDK, CMake 3.20 or later, Ninja, and pkg-config. Check out the Aeron
+submodule first. The script builds the pinned dependencies, applies the iOS
+patches, and writes `build/ios-sim/OpenXvT.app`.
+
+```sh
+git submodule update --init --recursive
+./packaging/ios/build-simulator.sh
+```
+
+`XVT_BUILD_TYPE` selects `Release` (the default) or `Debug`.
+`XVT_IOS_DEPLOYMENT_TARGET` defaults to `27.1`.
+
+Pushing an IPA to your own iPhone or iPad requires Developer Mode enabled on
+the device and an Apple Developer Account.

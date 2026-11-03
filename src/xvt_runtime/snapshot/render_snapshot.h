@@ -73,7 +73,7 @@ typedef struct XvtRenderSnapshot {
 	uint64_t mission_generation, world_generation;
 	int32_t game_time_ticks, view_time_ticks;
 	uint32_t scene_kind, dropped_records;
-	uint8_t flight_valid, focused, paused, text_entry_active;
+	uint8_t flight_valid, focused, paused, text_entry_active, text_field_selected;
 	XvtSnapCamera camera;
 	XvtSnapLighting lighting;
 	XvtCockpitState cockpit;

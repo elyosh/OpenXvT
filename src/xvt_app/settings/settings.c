@@ -1,4 +1,5 @@
 #include "xvt_app/settings/settings.h"
+#include "xvt_app/touch_controls.h"
 #include "xvt_app/settings/controller_page.h"
 #include "xvt_app/settings/installation_page.h"
 #include "xvt_app/settings/keyboard_page.h"
@@ -61,6 +62,7 @@ static void XvtSettingsMenu_DrawGame(AeronUiContext* ui, const AeronInputSnapsho
 }
 
 static void XvtSettingsMenu_DrawController(AeronUiContext* ui, const AeronInputSnapshot* input) {
+	XvtTouchControls_DrawMenu(ui, input);
 	XvtControllerSettings_Draw(&g_menu.controller, ui, input);
 }
 
@@ -187,8 +189,29 @@ void XvtSettingsMenu_Frame(const AeronInputSnapshot* input, float seconds) {
 		}
 		if (g_menu.page != 3)
 			XvtKeyboardSettings_CancelCapture(&g_menu.keyboard, g_menu.ui);
-		if (g_menu.pages[g_menu.page])
-			g_menu.pages[g_menu.page](g_menu.ui, input);
+		{
+			const AeronUiTheme* theme = AeronUi_GetTheme(g_menu.ui);
+			const float gap = theme ? theme->item_spacing : 10.0f;
+			const float row = theme ? theme->row_height : 40.0f;
+			/* Tabs stay put. Close and Exit stay on the last rows. The page
+			 * body scrolls instead of running off the window. */
+			float footer = 4.0f + gap + 9.0f + gap + row + gap + gap;
+			float body;
+			if (XvtPort_NetworkRequiresProgress())
+				footer += AeronUi_MeasureHelpHeight(g_menu.ui, "Multiplayer continues while settings are open.",
+													0.0f) +
+						  gap;
+			if (g_menu.error[0])
+				footer += AeronUi_MeasureHelpHeight(g_menu.ui, g_menu.error, 0.0f) + gap;
+			body = AeronUi_AvailableHeight(g_menu.ui) - footer;
+			if (body < 120.0f)
+				body = 120.0f;
+			if (AeronUi_BeginScroll(g_menu.ui, "settings-page", body)) {
+				if (g_menu.pages[g_menu.page])
+					g_menu.pages[g_menu.page](g_menu.ui, input);
+				AeronUi_EndScroll(g_menu.ui);
+			}
+		}
 		AeronUi_EndTabBar(g_menu.ui);
 		if (XvtPort_NetworkRequiresProgress())
 			AeronUi_Help(g_menu.ui, "Multiplayer continues while settings are open.");

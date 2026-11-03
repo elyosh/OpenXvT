@@ -1,6 +1,7 @@
 #include "xvt_runtime/config/settings.h"
 #include "xvt_runtime/config/controller_config.h"
 #include "xvt_runtime/config/keyboard_config.h"
+#include "xvt_runtime/input/touch_tuning.h"
 
 #include <float.h>
 #include <math.h>
@@ -224,9 +225,29 @@ static int XvtSettings_ReadDisplay(const AeronConfigFile* document, XvtPresentat
 	return 1;
 }
 
+static int XvtSettings_ReadTouchScale(const AeronConfigFile* document, const char* path,
+									  const AeronConfigNode* node, float* scale, char* error,
+									  size_t capacity) {
+	double value = AeronConfigNode_Float(node, NAN);
+	if (!XvtTouchTuning_ValidScale(value))
+
+		return XvtSettings_NodeError(document, path, "expected a scale from 0.6 to 1.6", error, capacity);
+	*scale = (float)value;
+
+	return 1;
+}
+
 int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* scene_defaults,
 					  XvtSettings* out, char* error, size_t capacity) {
 	XvtSettings candidate = { 0 };
+	XvtTouchButtons_Reset(candidate.touch_buttons);
+	candidate.touch_stick_deadzone = XVT_TOUCH_STICK_DEADZONE_DEFAULT;
+	candidate.touch_stick_sensitivity = (float)XVT_TOUCH_STICK_SENSITIVITY_DEFAULT;
+	for (int place = 0; place < XVT_TOUCH_FIXED_COUNT; ++place) {
+		candidate.touch_fixed_x[place] = -1.0f;
+		candidate.touch_fixed_y[place] = -1.0f;
+		candidate.touch_fixed_scale[place] = (float)XVT_TOUCH_SCALE_DEFAULT;
+	}
 	AeronConfigError detail;
 	static const char* const flight_rates[] = { "native", "unlocked" };
 	static const char* const window_modes[] = { "windowed", "fullscreen" };
@@ -270,6 +291,233 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 		return 0;
 	if (!XvtMouseConfig_Parse(document, &candidate.mouse, error, capacity))
 		return 0;
+	const AeronConfigNode* touch = AeronConfigFile_GetNode(document, "input.touch_controls");
+	if (touch) {
+		const char* value = AeronConfigNode_String(touch, "");
+		if (!strcmp(value, "automatic"))
+			candidate.touch_controls = XVT_TOUCH_CONTROLS_AUTOMATIC;
+		else if (!strcmp(value, "on"))
+			candidate.touch_controls = XVT_TOUCH_CONTROLS_ON;
+		else if (!strcmp(value, "off"))
+			candidate.touch_controls = XVT_TOUCH_CONTROLS_OFF;
+		else
+			return XvtSettings_NodeError(document, "input.touch_controls", "expected automatic, on or off",
+										 error, capacity);
+	}
+	{
+		const AeronConfigNode* transparency = AeronConfigFile_GetNode(document, "input.touch_transparency");
+		if (transparency) {
+			double value = AeronConfigNode_Float(transparency, NAN);
+			if (!isfinite(value) || value < 0.0 || value > 1.0)
+				return XvtSettings_NodeError(document, "input.touch_transparency",
+											 "expected a transparency from 0 to 1", error, capacity);
+			candidate.touch_transparency = (float)value;
+		}
+	}
+	{
+		const AeronConfigNode* deadzone = AeronConfigFile_GetNode(document, "input.touch_stick_deadzone");
+		if (deadzone) {
+			double value = AeronConfigNode_Float(deadzone, NAN);
+			if (!XvtTouchTuning_ValidDeadzone(value))
+				return XvtSettings_NodeError(document, "input.touch_stick_deadzone",
+											 "expected a deadzone from 0 to 0.5", error, capacity);
+			candidate.touch_stick_deadzone = (float)value;
+		}
+	}
+	{
+		const AeronConfigNode* sensitivity =
+			AeronConfigFile_GetNode(document, "input.touch_stick_sensitivity");
+		if (sensitivity) {
+			double value = AeronConfigNode_Float(sensitivity, NAN);
+			if (!XvtTouchTuning_ValidSensitivity(value))
+				return XvtSettings_NodeError(document, "input.touch_stick_sensitivity",
+											 "expected a sensitivity from 0.5 to 2", error, capacity);
+			candidate.touch_stick_sensitivity = (float)value;
+		}
+	}
+	{
+		const AeronConfigNode* buttons = AeronConfigFile_GetNode(document, "input.touch_buttons");
+		int listed = 0;
+		int sequence_scale[XVT_TOUCH_BUTTON_CAP] = { 0 };
+		if (buttons && AeronConfigNode_Type(buttons) == AERON_CONFIG_SEQUENCE) {
+			listed = 1;
+			for (int slot = 0; slot < XVT_TOUCH_BUTTON_CAP; ++slot) {
+				candidate.touch_buttons[slot].present = 0;
+				candidate.touch_buttons[slot].action = XVT_INPUT_ACTION_NONE;
+				candidate.touch_buttons[slot].x = -1.0f;
+				candidate.touch_buttons[slot].y = -1.0f;
+				candidate.touch_buttons[slot].scale = (float)XVT_TOUCH_SCALE_DEFAULT;
+			}
+			for (size_t i = 0; i < AeronConfigNode_SequenceCount(buttons); ++i) {
+				const AeronConfigNode* item = AeronConfigNode_SequenceGet(buttons, i);
+				const AeronConfigNode* slot_node;
+				const AeronConfigNode* action_node;
+				const AeronConfigNode* x_node;
+				const AeronConfigNode* y_node;
+				const AeronConfigNode* scale_node;
+				int slot;
+				XvtInputAction action;
+				if (!item || AeronConfigNode_Type(item) != AERON_CONFIG_MAP)
+					return XvtSettings_NodeError(document, "input.touch_buttons", "expected a button", error,
+												 capacity);
+				slot_node = AeronConfigNode_MapGet(item, "slot");
+				action_node = AeronConfigNode_MapGet(item, "action");
+				slot = (int)AeronConfigNode_Int(slot_node, -1);
+				action = XvtInputActions_FromName(AeronConfigNode_String(action_node, ""));
+				if (slot < 0 || slot >= XVT_TOUCH_BUTTON_CAP)
+					return XvtSettings_NodeError(document, "input.touch_buttons", "unknown touch button", error,
+												 capacity);
+				if (candidate.touch_buttons[slot].present)
+					return XvtSettings_NodeError(document, "input.touch_buttons", "repeated touch button", error,
+												 capacity);
+				if (!XvtInputActions_KeyboardBindable(action))
+					return XvtSettings_NodeError(document, "input.touch_buttons",
+												 "expected a bindable command", error, capacity);
+				candidate.touch_buttons[slot].present = 1;
+				candidate.touch_buttons[slot].action = (int)action;
+				x_node = AeronConfigNode_MapGet(item, "x");
+				y_node = AeronConfigNode_MapGet(item, "y");
+				if (x_node || y_node) {
+					double x = AeronConfigNode_Float(x_node, NAN);
+					double y = AeronConfigNode_Float(y_node, NAN);
+					if (!isfinite(x) || !isfinite(y) || x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0)
+						return XvtSettings_NodeError(document, "input.touch_buttons",
+													 "expected a position from 0 to 1", error, capacity);
+					candidate.touch_buttons[slot].x = (float)x;
+					candidate.touch_buttons[slot].y = (float)y;
+				}
+				scale_node = AeronConfigNode_MapGet(item, "scale");
+				if (scale_node) {
+					if (!XvtSettings_ReadTouchScale(document, "input.touch_buttons", scale_node,
+						&candidate.touch_buttons[slot].scale, error,
+						capacity))
+						return 0;
+					sequence_scale[slot] = 1;
+				}
+			}
+		} else if (buttons) {
+			if (AeronConfigNode_Type(buttons) != AERON_CONFIG_MAP)
+				return XvtSettings_NodeError(document, "input.touch_buttons", "expected a button map", error,
+											 capacity);
+			for (size_t i = 0; i < AeronConfigNode_MapCount(buttons); ++i) {
+				const char* key = AeronConfigNode_MapKeyAt(buttons, i);
+				const char* name = AeronConfigNode_String(AeronConfigNode_MapValueAt(buttons, i), "");
+				XvtInputAction action = XvtInputActions_FromName(name);
+				int slot = XvtTouchButton_SlotForKey(key);
+				if (slot < 0) {
+					if (XvtTouchControl_Retired(key))
+						continue;
+					return XvtSettings_NodeError(document, "input.touch_buttons", "unknown touch button", error,
+												 capacity);
+				}
+				if (!XvtInputActions_KeyboardBindable(action))
+					return XvtSettings_NodeError(document, "input.touch_buttons",
+												 "expected a bindable command", error, capacity);
+				candidate.touch_buttons[slot].action = (int)action;
+			}
+		}
+		const AeronConfigNode* layout = AeronConfigFile_GetNode(document, "input.touch_layout");
+		if (layout) {
+			if (AeronConfigNode_Type(layout) != AERON_CONFIG_MAP)
+				return XvtSettings_NodeError(document, "input.touch_layout", "expected a control map", error,
+											 capacity);
+			for (size_t i = 0; i < AeronConfigNode_MapCount(layout); ++i) {
+				const char* key = AeronConfigNode_MapKeyAt(layout, i);
+				const AeronConfigNode* value = AeronConfigNode_MapValueAt(layout, i);
+				const AeronConfigNode* x_node;
+				const AeronConfigNode* y_node;
+				const AeronConfigNode* scale_node;
+				int slot = XvtTouchButton_SlotForKey(key);
+				int fixed = XvtTouchFixed_Index(key);
+				int sequence_placed;
+				if (slot < 0 && fixed < 0) {
+					if (XvtTouchControl_Retired(key))
+						continue;
+					return XvtSettings_NodeError(document, "input.touch_layout", "unknown touch control", error,
+												 capacity);
+				}
+				/* The sequence keeps a saved position. Layout supplies only a scale the sequence left out. */
+				sequence_placed = slot >= 0 && listed && candidate.touch_buttons[slot].x >= 0.0f &&
+								  candidate.touch_buttons[slot].y >= 0.0f;
+				if (sequence_placed) {
+					if (value && AeronConfigNode_Type(value) == AERON_CONFIG_MAP && !sequence_scale[slot]) {
+						scale_node = AeronConfigNode_MapGet(value, "scale");
+						if (scale_node &&
+							!XvtSettings_ReadTouchScale(document, "input.touch_layout", scale_node,
+														&candidate.touch_buttons[slot].scale, error,
+														capacity))
+							return 0;
+					}
+					continue;
+				}
+				if (!value || AeronConfigNode_Type(value) != AERON_CONFIG_MAP)
+					return XvtSettings_NodeError(document, "input.touch_layout", "expected a position", error,
+												 capacity);
+				x_node = AeronConfigNode_MapGet(value, "x");
+				y_node = AeronConfigNode_MapGet(value, "y");
+				scale_node = AeronConfigNode_MapGet(value, "scale");
+				if ((x_node != NULL) != (y_node != NULL))
+					return XvtSettings_NodeError(document, "input.touch_layout",
+												 "expected a position from 0 to 1", error, capacity);
+				if (x_node && y_node) {
+					double x = AeronConfigNode_Float(x_node, NAN);
+					double y = AeronConfigNode_Float(y_node, NAN);
+					if (!isfinite(x) || !isfinite(y) || x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0)
+						return XvtSettings_NodeError(document, "input.touch_layout",
+													 "expected a position from 0 to 1", error, capacity);
+					if (fixed >= 0) {
+						candidate.touch_fixed_x[fixed] = (float)x;
+						candidate.touch_fixed_y[fixed] = (float)y;
+					} else {
+						candidate.touch_buttons[slot].x = (float)x;
+						candidate.touch_buttons[slot].y = (float)y;
+					}
+				} else if (!scale_node) {
+					return XvtSettings_NodeError(document, "input.touch_layout",
+												 "expected a position from 0 to 1", error, capacity);
+				}
+				if (scale_node && !(slot >= 0 && sequence_scale[slot])) {
+					float* scale = fixed >= 0 ? &candidate.touch_fixed_scale[fixed]
+											   : &candidate.touch_buttons[slot].scale;
+					if (!XvtSettings_ReadTouchScale(document, "input.touch_layout", scale_node, scale, error,
+													capacity))
+						return 0;
+				}
+			}
+		}
+		/* Sizes sit apart from positions, which older builds ignore. A sequence scale wins. */
+		const AeronConfigNode* scales = AeronConfigFile_GetNode(document, "input.touch_scale");
+		if (scales) {
+			if (AeronConfigNode_Type(scales) != AERON_CONFIG_MAP)
+
+				return XvtSettings_NodeError(document, "input.touch_scale", "expected a control map", error,
+											 capacity);
+			for (size_t i = 0; i < AeronConfigNode_MapCount(scales); ++i) {
+				const char* key = AeronConfigNode_MapKeyAt(scales, i);
+				const AeronConfigNode* value = AeronConfigNode_MapValueAt(scales, i);
+				int slot = XvtTouchButton_SlotForKey(key);
+				int fixed = XvtTouchFixed_Index(key);
+				float* scale;
+				if (slot < 0 && fixed < 0) {
+					if (XvtTouchControl_Retired(key))
+						continue;
+
+					return XvtSettings_NodeError(document, "input.touch_scale", "unknown touch control",
+												 error, capacity);
+				}
+				if (slot >= 0 && sequence_scale[slot])
+					continue;
+				if (fixed >= 0) {
+					scale = &candidate.touch_fixed_scale[fixed];
+				} else {
+					scale = &candidate.touch_buttons[slot].scale;
+				}
+				if (!XvtSettings_ReadTouchScale(document, "input.touch_scale", value, scale, error, capacity))
+
+					return 0;
+			}
+		}
+	}
 	*out = candidate;
 	return 1;
 }

@@ -11,7 +11,39 @@ set(XVT_UI_FONTS
 add_dependencies(xvt aeron_shaders xvt_shaders)
 set(XVT_ALL_SHADER_OUTPUTS ${AERON_SHADER_OUTPUTS} ${XVT_SHADER_OUTPUTS})
 
-if(APPLE)
+if(IOS)
+    set(XVT_IOS_BUNDLE_IDENTIFIER "org.openxvt.openxvt" CACHE STRING
+        "iOS bundle identifier")
+    if(CMAKE_OSX_SYSROOT MATCHES [Ss]imulator)
+        set(XVT_IOS_PLATFORM_NAME iPhoneSimulator)
+    else()
+        set(XVT_IOS_PLATFORM_NAME iPhoneOS)
+    endif()
+    target_compile_definitions(xvt PRIVATE "XVT_IOS_RESOURCE_PATH=\"gamedata\"")
+    set_target_properties(xvt PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/cmake/ios/Info.plist.in"
+        MACOSX_BUNDLE_BUNDLE_NAME "OpenXvT"
+        MACOSX_BUNDLE_EXECUTABLE_NAME "OpenXvT"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "${XVT_IOS_BUNDLE_IDENTIFIER}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${XVT_VERSION}"
+        MACOSX_BUNDLE_LONG_VERSION_STRING "${XVT_VERSION}")
+    add_custom_target(xvt_bundle_shaders ALL
+        COMMAND "${CMAKE_COMMAND}"
+            "-DXVT_BUNDLE_CONTENT_DIR=$<TARGET_BUNDLE_CONTENT_DIR:xvt>"
+            "-DXVT_SHADER_SOURCE_DIR=${CMAKE_BINARY_DIR}/shaders"
+            "-DXVT_RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources"
+            "-DXVT_FONT_DIR=${CMAKE_SOURCE_DIR}/resources/assets/fonts"
+            "-DXVT_AERON_DEFAULTS=${XVT_AERON_DEFAULTS}"
+            -P "${CMAKE_SOURCE_DIR}/cmake/ios/StageBundle.cmake"
+        DEPENDS aeron_shaders xvt_shaders
+            "${XVT_AERON_DEFAULTS}" ${XVT_DEFAULT_RESOURCES} ${XVT_UI_FONTS}
+        VERBATIM)
+    add_dependencies(xvt xvt_bundle_shaders)
+    install(TARGETS xvt BUNDLE DESTINATION . COMPONENT Runtime)
+    set(XVT_PACKAGE_RESOURCE_DIR "OpenXvT.app")
+elseif(APPLE)
     set(XVT_MACOS_BUILD_VERSION "1" CACHE STRING "macOS bundle build version")
     set(XVT_MACOS_BUNDLE_IDENTIFIER "org.openxvt.openxvt" CACHE STRING "macOS bundle identifier")
     set_target_properties(xvt PROPERTIES

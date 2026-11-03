@@ -6,8 +6,9 @@
 | macOS x86_64 | Metal | `.app` in a DMG | No |
 | Windows x86_64 | D3D12 and Vulkan | ZIP | Yes |
 | Linux x86_64 | Vulkan | tar.xz | Yes |
+| iOS arm64 | Metal | `OpenXvT.app` for the iPhone Simulator | No |
 
-- Output directory: `build/artifacts`.
+- Output directory: `build/artifacts` for desktop packages, `build/ios-sim` for iOS.
 - Runtime libraries: SDL3, zstd and FFmpeg; libjuice is linked statically.
 - curl: bundled on Windows, system-provided on macOS and Linux.
 - FFmpeg formats: Smacker, Ogg/Vorbis and WAV.
@@ -55,6 +56,34 @@ Alternatively, supply all three direct-credential variables:
 ```
 
 `XVT_MACOS_RELEASE_TAG` optionally replaces the signed DMG on a GitHub release.
+
+## iOS
+
+Requirements: Xcode with the iOS simulator SDK, CMake, Ninja, and pkg-config.
+Run from a checkout that includes the Aeron submodule. The script builds the
+pinned SDL, zstd, curl, FFmpeg, and shader tools, then applies the iOS patches.
+
+iOS builds include full iPhone Duo support and on-screen touch controls for
+flight, throttle, weapons, shields, targeting, and the map.
+
+```sh
+git submodule update --init --recursive
+./packaging/ios/build-simulator.sh
+XVT_BUILD_TYPE=Debug ./packaging/ios/build-simulator.sh
+```
+
+| Environment variable | Default |
+|---|---|
+| `XVT_BUILD_TYPE` | `Release` |
+| `XVT_IOS_DEPLOYMENT_TARGET` | `27.1` |
+| `XVT_IOS_BUNDLE_IDENTIFIER` | `org.openxvt.openxvt` |
+| `XVT_IOS_DEPS_ROOT` | `build/ios-deps` |
+| `XVT_IOS_SIM_BUILD` | `build/ios-sim` |
+
+The simulator app is `build/ios-sim/OpenXvT.app`.
+
+Pushing an IPA to your own iPhone or iPad requires Developer Mode enabled on
+the device and an Apple Developer Account.
 
 ## Linux and Windows
 

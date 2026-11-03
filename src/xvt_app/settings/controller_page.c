@@ -1,6 +1,7 @@
 #include "xvt_app/settings/controller_page.h"
 
 #include "aeron/aeron.h"
+#include "xvt_app/touch_controls.h"
 #include "xvt_runtime/input/controller_mapping.h"
 
 #include <stdio.h>
@@ -32,7 +33,8 @@ static const AeronControllerSnapshot* XvtControllerPage_SelectedController(XvtCo
 		return NULL;
 	for (int i = 0; i < AERON_CONTROLLER_MAX; ++i)
 		if (input->controllers[i].connected &&
-			input->controllers[i].instance_id == settings->selected_instance)
+			input->controllers[i].instance_id == settings->selected_instance &&
+			!XvtTouchControls_IsVirtual(input->controllers[i].instance_id))
 			return &input->controllers[i];
 	return NULL;
 }
@@ -246,7 +248,7 @@ static void XvtControllerSettings_DeviceSelector(XvtControllerSettings* settings
 	int count = 0, selected = -1;
 	for (int i = 0; i < AERON_CONTROLLER_MAX; ++i) {
 		const AeronControllerSnapshot* d = &input->controllers[i];
-		if (!d->connected)
+		if (!d->connected || XvtTouchControls_IsVirtual(d->instance_id))
 			continue;
 		bool duplicate_name = false;
 		for (int other = 0; other < AERON_CONTROLLER_MAX; ++other) {
@@ -291,8 +293,10 @@ static void XvtControllerSettings_DeviceSelector(XvtControllerSettings* settings
 
 void XvtControllerSettings_Discover(XvtControllerSettings* settings, AeronUiContext* ui,
 									const AeronInputSnapshot* input, const XvtControllerProfile* defaults) {
+	AeronInputSnapshot filtered;
 	size_t count = settings->draft.count;
-	bool ok = XvtControllerOptions_InitializeGamepads(&settings->draft, defaults, input, settings->error,
+	XvtTouchControls_Omit(&filtered, input);
+	bool ok = XvtControllerOptions_InitializeGamepads(&settings->draft, defaults, &filtered, settings->error,
 													  sizeof settings->error);
 	if (settings->draft.count != count) {
 		XvtControllerSettings_ResetDeviceEditState(settings, ui);
@@ -753,10 +757,14 @@ void XvtControllerSettings_Draw(XvtControllerSettings* settings, AeronUiContext*
 		settings->editor.binding_modal_open = 0;
 	}
 	float trailing_height = 143.0f;
+	float available;
 	if (settings->error[0])
 		trailing_height += AeronUi_MeasureHelpHeight(ui, settings->error, 0.0f) + 60.0f;
-	if (controller && compatible && settings->page == CONTROLLER_PAGE_AXES) {
-		float scroll_height = AeronUi_AvailableHeight(ui) - trailing_height;
+	available = AeronUi_AvailableHeight(ui);
+	if (controller && compatible && settings->page == CONTROLLER_PAGE_AXES && available <= 1.0f) {
+		XvtControllerSettings_AxisPage(settings, ui, controller);
+	} else if (controller && compatible && settings->page == CONTROLLER_PAGE_AXES) {
+		float scroll_height = available - trailing_height;
 		if (scroll_height < 180.0f)
 			scroll_height = 180.0f;
 		if (AeronUi_BeginScroll(ui, "Flight Axes", scroll_height)) {

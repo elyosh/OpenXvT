@@ -1,0 +1,17 @@
+diff --git a/src/gpu/metal/SDL_gpu_metal.m b/src/gpu/metal/SDL_gpu_metal.m
+index b29cad6..be3a280 100644
+--- a/src/gpu/metal/SDL_gpu_metal.m
++++ b/src/gpu/metal/SDL_gpu_metal.m
+@@ -4578,7 +4578,12 @@ static SDL_GPUDevice *METAL_CreateDevice(bool debugMode, bool preferLowPower, SD
+         hasHardwareSupport = true;
+ #else
+         if (@available(iOS 13.0, tvOS 13.0, *)) {
++            /* The iOS Simulator GPU reports Apple2. Device builds stay on Apple3. */
++#if TARGET_OS_SIMULATOR
++            hasHardwareSupport = [device supportsFamily:MTLGPUFamilyApple2];
++#else
+             hasHardwareSupport = [device supportsFamily:MTLGPUFamilyApple3];
++#endif
+         }
+ #endif
+ 

@@ -23,4 +23,5 @@ int XvtControllerMapping_Present(void);
 int XvtControllerMapping_MenuAxis(XvtInputAxis axis);
 uint8_t XvtControllerMapping_MenuButtons(void);
 uint8_t XvtControllerMapping_MenuHat(void);
+void XvtControllerMapping_ReportAction(XvtInputAction action, int pressed);
 #endif

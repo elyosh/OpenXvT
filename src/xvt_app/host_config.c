@@ -77,7 +77,11 @@ void XvtHostConfig_InitAeron(const XvtLaunchOptions* options, AeronConfig* confi
 	config->window_icon_bmp = xvt_window_icon_bmp;
 	config->window_icon_bmp_size = sizeof xvt_window_icon_bmp;
 	config->resource_root = options ? options->resource_root : NULL;
+#ifdef XVT_IOS_RESOURCE_PATH
+	config->resource_path = XVT_IOS_RESOURCE_PATH;
+#else
 	config->resource_path = "resources";
+#endif
 	config->shader_path = "shaders";
 	config->logical_width = 640;
 	config->logical_height = 480;

@@ -1,4 +1,5 @@
 #include "xvt_app/setup.h"
+#include "xvt_app/installation_picker.h"
 #include "aeron/config_file.h"
 #include "xvt/util/memory.h"
 #include "xvt_app/setup_ui.h"
@@ -240,6 +241,8 @@ XvtSetupResult XvtSetup_Run(const XvtLaunchOptions* options, XvtAppUi* ui, char*
 		return XVT_SETUP_ERROR;
 	}
 	strcpy(selected, candidate);
+	if (!options->game_data)
+		XvtInstallationPicker_Restore(selected, sizeof selected, error, capacity);
 	if (options->setup || !selected[0] ||
 		!XvtSetup_ResolveInstallation(selected, selected, sizeof selected, error, capacity)) {
 		if (!ui || options->game_data) {

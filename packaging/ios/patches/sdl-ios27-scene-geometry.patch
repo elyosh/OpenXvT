@@ -1,0 +1,85 @@
+diff --git a/src/video/uikit/SDL_uikitmodes.m b/src/video/uikit/SDL_uikitmodes.m
+index b7cb52e..8ef7cc0 100644
+--- a/src/video/uikit/SDL_uikitmodes.m
++++ b/src/video/uikit/SDL_uikitmodes.m
+@@ -328,15 +328,10 @@ void UIKit_DelDisplay(UIScreen *uiscreen, bool send_event)
+ 
+ bool UIKit_IsDisplayLandscape(UIScreen *uiscreen)
+ {
+-#ifndef SDL_PLATFORM_TVOS
+-    if (uiscreen == [UIScreen mainScreen]) {
+-        return UIInterfaceOrientationIsLandscape([UIApplication sharedApplication].statusBarOrientation);
+-    } else
+-#endif // !SDL_PLATFORM_TVOS
+-    {
+-        CGSize size = uiscreen.bounds.size;
+-        return (size.width > size.height);
+-    }
++    /* Aspect comes from the screen bounds. statusBarOrientation does not
++     * follow a resized or folded scene on iOS 27. */
++    CGSize size = uiscreen.bounds.size;
++    return (size.width > size.height);
+ }
+ #endif
+ bool UIKit_InitModes(SDL_VideoDevice *_this)
+@@ -484,10 +479,12 @@ void UIKit_QuitModes(SDL_VideoDevice *_this)
+ #if !defined(SDL_PLATFORM_TVOS) && !defined(SDL_PLATFORM_VISIONOS)
+ void SDL_OnApplicationDidChangeStatusBarOrientation(void)
+ {
+-    BOOL isLandscape = UIInterfaceOrientationIsLandscape([UIApplication sharedApplication].statusBarOrientation);
+     SDL_VideoDisplay *display = SDL_GetVideoDisplay(SDL_GetPrimaryDisplay());
+ 
+     if (display) {
++        SDL_UIKitDisplayData *data = (__bridge SDL_UIKitDisplayData *)display->internal;
++        CGSize bounds = data.uiscreen.bounds.size;
++        BOOL isLandscape = bounds.width > bounds.height;
+         SDL_DisplayMode *mode = &display->desktop_mode;
+         SDL_DisplayOrientation orientation = SDL_ORIENTATION_UNKNOWN;
+         int i;
+@@ -518,6 +515,9 @@ void SDL_OnApplicationDidChangeStatusBarOrientation(void)
+             }
+         }
+ 
++        // TODO: Modernization - bounds cannot tell landscape-left from landscape-right.
++        // statusBarOrientation is a no-op on iOS 27, so this reports UNKNOWN.
++        // A rotation transform would need a source the scene owner chooses.
+         switch ([UIApplication sharedApplication].statusBarOrientation) {
+         case UIInterfaceOrientationPortrait:
+             orientation = SDL_ORIENTATION_PORTRAIT;
+diff --git a/src/video/uikit/SDL_uikitvideo.m b/src/video/uikit/SDL_uikitvideo.m
+index 97aeb94..59f63f4 100644
+--- a/src/video/uikit/SDL_uikitvideo.m
++++ b/src/video/uikit/SDL_uikitvideo.m
+@@ -228,29 +228,9 @@ CGRect UIKit_ComputeViewFrame(SDL_Window *window, UIScreen *screen)
+         frame = data.uiwindow.bounds;
+     }
+ 
+-#ifndef SDL_PLATFORM_TVOS
+-    /* iOS 10 seems to have a bug where, in certain conditions, putting the
+-     * device to sleep with the a landscape-only app open, re-orienting the
+-     * device to portrait, and turning it back on will result in the screen
+-     * bounds returning portrait orientation despite the app being in landscape.
+-     * This is a workaround until a better solution can be found.
+-     * https://bugzilla.libsdl.org/show_bug.cgi?id=3505
+-     * https://bugzilla.libsdl.org/show_bug.cgi?id=3465
+-     * https://forums.developer.apple.com/thread/65337 */
+-    UIInterfaceOrientation orient = [UIApplication sharedApplication].statusBarOrientation;
+-    BOOL landscape = UIInterfaceOrientationIsLandscape(orient) ||
+-                    !(UIKit_GetSupportedOrientations(window) & (UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown));
+-    BOOL fullscreen = CGRectEqualToRect(screen.bounds, frame);
+-
+-    /* The orientation flip doesn't make sense when the window is smaller
+-     * than the screen (iPad Split View, for example). */
+-    if (fullscreen && (landscape != (frame.size.width > frame.size.height))) {
+-        float height = frame.size.width;
+-        frame.size.width = frame.size.height;
+-        frame.size.height = height;
+-    }
+-#endif
+-
++    /* The window or screen bounds are the size. statusBarOrientation does
++     * not follow a resized scene, and swapping here turned a landscape
++     * Duo window into portrait dimensions. */
+     return frame;
+ }
+ #endif // SDL_PLATFORM_VISIONOS

@@ -1,5 +1,6 @@
 #include "xvt_app/setup_ui.h"
 
+#include "xvt_app/installation_picker.h"
 #include "xvt_runtime/config/config.h"
 #include <stdio.h>
 
@@ -9,13 +10,22 @@ typedef enum XvtSetupFrameResult {
 	XVT_SETUP_FRAME_CANCELLED,
 } XvtSetupFrameResult;
 
+#if !defined(SDL_PLATFORM_IOS)
 static int XvtSetupUi_AcceptInstallation(const char* path, void* user, char* error, size_t capacity) {
 	(void)user;
 	char resolved[XVT_PATH_CAPACITY];
+
 	return XvtSetup_ResolveInstallation(path, resolved, sizeof resolved, error, capacity);
 }
+#endif
 
 int XvtSetupUi_OpenPicker(AeronUiFilePicker* picker, const char* path, char* error, size_t capacity) {
+#if defined(SDL_PLATFORM_IOS)
+	(void)picker;
+	(void)path;
+
+	return XvtInstallationPicker_OpenNative(error, capacity);
+#else
 	const AeronUiFilePickerDesc desc = {
 		.mode = AERON_UI_FILE_PICKER_SELECT_DIRECTORY,
 		.title = "SELECT XvT INSTALLATION",
@@ -26,6 +36,38 @@ int XvtSetupUi_OpenPicker(AeronUiFilePicker* picker, const char* path, char* err
 		.accept_fn = XvtSetupUi_AcceptInstallation,
 	};
 	return AeronUiFilePicker_Open(picker, &desc, error, capacity);
+#endif
+}
+
+AeronUiFilePickerResult XvtSetupUi_DrawPicker(AeronUiFilePicker* picker, AeronUiContext* ui, char* path,
+											  size_t path_capacity, char* error, size_t error_capacity) {
+#if defined(SDL_PLATFORM_IOS)
+	(void)picker;
+	(void)ui;
+
+	return XvtInstallationPicker_PollNative(path, path_capacity, error, error_capacity);
+#else
+	return AeronUiFilePicker_Draw(picker, ui, path, path_capacity, error, error_capacity);
+#endif
+}
+
+int XvtSetupUi_PickerIsOpen(const AeronUiFilePicker* picker) {
+#if defined(SDL_PLATFORM_IOS)
+	(void)picker;
+
+	return XvtInstallationPicker_NativeOpen();
+#else
+	return AeronUiFilePicker_IsOpen(picker);
+#endif
+}
+
+void XvtSetupUi_CancelPicker(AeronUiFilePicker* picker) {
+#if defined(SDL_PLATFORM_IOS)
+	(void)picker;
+	XvtInstallationPicker_CancelNative();
+#else
+	AeronUiFilePicker_Cancel(picker);
+#endif
 }
 
 static XvtSetupFrameResult XvtSetupUi_DrawRecovery(AeronUiContext* ui, char* error, size_t capacity) {
@@ -104,7 +146,7 @@ XvtSetupResult XvtSetupUi_Run(XvtAppUi* ui, char* path, size_t path_capacity, ch
 				 : XvtSetupUi_DrawRecovery(context, error, capacity);
 		if (picker) {
 			const AeronUiFilePickerResult picked =
-				AeronUiFilePicker_Draw(picker, context, path, path_capacity, error, capacity);
+				XvtSetupUi_DrawPicker(picker, context, path, path_capacity, error, capacity);
 			if (picked == AERON_UI_FILE_PICKER_SELECTED) {
 				valid = XvtSetup_ResolveInstallation(path, path, path_capacity, error, capacity);
 			}

@@ -32,7 +32,11 @@ void XvtBindingsEditor_Actions(XvtBindingsEditor* editor, AeronUiContext* ui, co
 				editor->action_selected = i;
 				break;
 			}
-	float height = AeronUi_AvailableHeight(ui) - trailing_height;
+	const AeronUiTheme* theme = AeronUi_GetTheme(ui);
+	float available = AeronUi_AvailableHeight(ui);
+	float height = available - trailing_height;
+	if (available <= 1.0f)
+		height = (float)count * (theme ? theme->row_height : 40.0f);
 	if (height < 180.0f)
 		height = 180.0f;
 	uint32_t result = AeronUi_ListBox(ui, "Actions", items, count, &editor->action_selected, height);

@@ -19,6 +19,8 @@
 #include "xvt_runtime/runtime/presentation.h"
 #include "xvt_runtime/snapshot/render_snapshot.h"
 
+#include <SDL3/SDL.h>
+
 #include <string.h>
 
 static AeronWinmmJoystickState g_joystick;
@@ -201,6 +203,52 @@ static void XvtInput_Controller(int suppress) {
 	}
 }
 
+static SDL_Window* XvtInput_TextWindow(void) {
+	SDL_Window* window = SDL_GetKeyboardFocus();
+	int count = 0;
+	SDL_Window** windows;
+	if (window)
+		return window;
+	windows = SDL_GetWindows(&count);
+	if (windows && count > 0)
+		window = windows[0];
+	SDL_free(windows);
+
+	return window;
+}
+
+static int XvtInput_CollectingText(void) {
+	const XvtRenderSnapshot* snapshot = XvtRenderSnapshot_Current();
+	if (snapshot && snapshot->text_field_selected)
+		return 1;
+	if (XvtDialog_IsTextPrompt())
+		return 1;
+	if (XvtFlightTask_IsActive() && (unsigned)g_localPlayer < 8 &&
+		g_players[g_localPlayer].msgTypeId != FLIGHT_CHAT_RECIPIENT_INACTIVE)
+		return 1;
+
+	return 0;
+}
+
+void XvtInput_SyncScreenKeyboard(void) {
+	SDL_Window* window;
+	int collecting;
+	if (!SDL_HasScreenKeyboardSupport())
+		return;
+	window = XvtInput_TextWindow();
+	if (!window)
+		return;
+	/* Aeron starts text input so desktop fields receive characters. On a phone
+	 * that same call presents the screen keyboard and leaves it up. */
+	collecting = XvtInput_CollectingText();
+	if (collecting) {
+		if (!SDL_TextInputActive(window))
+			SDL_StartTextInput(window);
+	} else if (SDL_TextInputActive(window)) {
+		SDL_StopTextInput(window);
+	}
+}
+
 void XvtInput_Init(void) {
 	const XvtSettings* settings = XvtConfig_Settings();
 	if (!settings)
@@ -224,6 +272,7 @@ int XvtInput_CanReacquireKeyboard(void) {
 }
 
 void XvtInput_Update(int suppress) {
+	XvtInput_SyncScreenKeyboard();
 	XvtInput_UpdateKeyboard(suppress != 0);
 	const AeronInputSnapshot* input = Aeron_InputSnapshot();
 	int key;
@@ -283,6 +332,7 @@ int XvtInput_RendererShortcutAllowed(void) {
 }
 
 void XvtInput_UpdateFlight(int suppress) {
+	XvtInput_SyncScreenKeyboard();
 	XvtInput_UpdateKeyboard(suppress != 0);
 	const AeronInputSnapshot* input = Aeron_InputSnapshot();
 	if (input) {
