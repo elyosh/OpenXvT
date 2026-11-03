@@ -103,6 +103,11 @@ typedef struct XvtSettings {
 	 * Negative keeps the shipped position. */
 	float touch_fixed_x[XVT_TOUCH_FIXED_COUNT];
 	float touch_fixed_y[XVT_TOUCH_FIXED_COUNT];
+	/* Missing key means 0.08. */
+	float touch_stick_deadzone;
+	/* Missing key means 1. */
+	float touch_stick_sensitivity;
+	float touch_fixed_scale[XVT_TOUCH_FIXED_COUNT];
 	char game_data[XVT_PATH_CAPACITY];
 	char ui_font[XVT_PATH_CAPACITY];
 	char lobby_url[AERON_DPLAY_DIRECTORY_URL_CAPACITY];

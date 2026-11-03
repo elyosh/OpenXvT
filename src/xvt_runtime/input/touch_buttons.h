@@ -46,6 +46,7 @@ typedef struct XvtTouchButtonSlot {
 	int action;
 	/* Negative coordinates keep the shipped position. */
 	float x, y;
+	float scale;
 } XvtTouchButtonSlot;
 
 const char* XvtTouchButton_Key(int index);

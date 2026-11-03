@@ -179,6 +179,8 @@ set(XVT_RUNTIME_SOURCES
     src/xvt_runtime/config/keyboard_config.c
     src/xvt_runtime/input/actions.c
     src/xvt_runtime/input/touch_buttons.c
+    src/xvt_runtime/input/touch_tuning.c
+    src/xvt_runtime/input/touch_layout.c
     src/xvt_runtime/input/controller_options.c
     src/xvt_runtime/input/controller_mapping.c
     src/xvt_runtime/storage/storage.c

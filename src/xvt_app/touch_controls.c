@@ -12,6 +12,8 @@
 #include "xvt_runtime/input/controller_mapping.h"
 #include "xvt_runtime/input/controller_mapping.h"
 #include "xvt_runtime/input/touch_buttons.h"
+#include "xvt_runtime/input/touch_tuning.h"
+#include "xvt_runtime/input/touch_layout.h"
 #include "xvt_runtime/runtime/flight_task.h"
 #include "xvt_runtime/runtime/port.h"
 #include "xvt_runtime/runtime/presentation.h"
@@ -98,6 +100,15 @@ static int g_arrange;
 static uint64_t g_place_generation;
 static float g_norm_x[TOUCH_COUNT];
 static float g_norm_y[TOUCH_COUNT];
+static float g_norm_scale[TOUCH_COUNT];
+/* -1 is idle. Control 0 is the left stick, so a zeroed struct would pinch the wrong control. */
+static struct {
+	int control;
+	int a;
+	int b;
+	float start_distance;
+	float start_scale;
+} g_pinch = { -1, 0, 0, 0.0f, 1.0f };
 static float g_opacity = 1.0f;
 static uint8_t g_throttle_phase[TOUCH_COUNT];
 static uint64_t g_throttle_next[TOUCH_COUNT];
@@ -247,10 +258,7 @@ static void TouchPlaceControl(int index, float x, float y, float w, float h, int
 	control->visible = visible;
 }
 
-static int TouchLayoutFits(const TouchBounds* bounds) {
-	float left_edge = bounds->left;
-	float right_edge = bounds->right;
-	int right_controls = 0;
+static int TouchInside(const TouchBounds* bounds) {
 	for (int i = 0; i < TOUCH_COUNT; ++i) {
 		const TouchControl* control = &g_controls[i];
 		if (!control->visible)
@@ -258,7 +266,20 @@ static int TouchLayoutFits(const TouchBounds* bounds) {
 		if (control->x < bounds->left - 0.5f || control->y < bounds->top - 0.5f ||
 			control->x + control->w > bounds->right + 0.5f || control->y + control->h > bounds->bottom + 0.5f)
 			return 0;
-		if (!g_show_sticks)
+	}
+
+	return 1;
+}
+
+static int TouchLayoutFits(const TouchBounds* bounds) {
+	float left_edge = bounds->left;
+	float right_edge = bounds->right;
+	int right_controls = 0;
+	if (!TouchInside(bounds))
+		return 0;
+	for (int i = 0; i < TOUCH_COUNT; ++i) {
+		const TouchControl* control = &g_controls[i];
+		if (!control->visible || !g_show_sticks)
 			continue;
 		if (TouchLeftCluster(i)) {
 			if (control->x + control->w > left_edge)
@@ -298,26 +319,38 @@ static void TouchLoadPlaces(void) {
 		int fixed = XvtTouchControl_Fixed(i);
 		g_norm_x[i] = -1.0f;
 		g_norm_y[i] = -1.0f;
+		g_norm_scale[i] = (float)XVT_TOUCH_SCALE_DEFAULT;
 		if (!settings)
 			continue;
 		if (slot >= 0) {
 			g_norm_x[i] = settings->touch_buttons[slot].x;
 			g_norm_y[i] = settings->touch_buttons[slot].y;
+			g_norm_scale[i] = settings->touch_buttons[slot].scale;
 		} else if (fixed >= 0) {
 			g_norm_x[i] = settings->touch_fixed_x[fixed];
 			g_norm_y[i] = settings->touch_fixed_y[fixed];
+			g_norm_scale[i] = settings->touch_fixed_scale[fixed];
 		}
 	}
 }
 
 static void TouchSetCenter(int index, float cx, float cy, const TouchBounds* bounds) {
 	TouchControl* control = &g_controls[index];
-	float half_w = control->w * 0.5f;
-	float half_h = control->h * 0.5f;
-	if (half_w * 2.0f > bounds->right - bounds->left)
-		half_w = (bounds->right - bounds->left) * 0.5f;
-	if (half_h * 2.0f > bounds->bottom - bounds->top)
-		half_h = (bounds->bottom - bounds->top) * 0.5f;
+	float bounds_w = bounds->right - bounds->left;
+	float bounds_h = bounds->bottom - bounds->top;
+	float half_w;
+	float half_h;
+	if (control->w > 0.0f && control->h > 0.0f && bounds_w > 0.0f && bounds_h > 0.0f) {
+		float factor = bounds_w / control->w;
+		if (bounds_h / control->h < factor)
+			factor = bounds_h / control->h;
+		if (factor < 1.0f) {
+			control->w *= factor;
+			control->h *= factor;
+		}
+	}
+	half_w = control->w * 0.5f;
+	half_h = control->h * 0.5f;
 	if (cx - half_w < bounds->left)
 		cx = bounds->left + half_w;
 	if (cy - half_h < bounds->top)
@@ -381,36 +414,6 @@ static int TouchRepeats(int index) {
 		   action == XVT_INPUT_ACTION_THROTTLE_DOWN_OR_STOP_TRACKING_MAP_TARGET;
 }
 
-static void TouchPlaceRow(const int* ids, int count, float right, float y, float bw, float bh, float gap) {
-	float x;
-	int i;
-	if (count <= 0)
-
-		return;
-	x = right - (bw * (float)count + gap * (float)(count - 1));
-	for (i = 0; i < count; ++i)
-		TouchPlaceControl(ids[i], x + (bw + gap) * (float)i, y, bw, bh, 1);
-}
-
-static void TouchPlaceSpan(const int* ids, int count, float left, float right, float y, float bh, float gap) {
-	float width = right - left;
-	float bw;
-	float x;
-	float max_bw = bh * 2.4f;
-	int i;
-	if (count <= 0 || width < 1.0f)
-
-		return;
-	bw = (width - gap * (float)(count - 1)) / (float)count;
-	if (bw < 1.0f)
-		bw = 1.0f;
-	if (bw > max_bw)
-		bw = max_bw;
-	x = left + (width - (bw * (float)count + gap * (float)(count - 1))) * 0.5f;
-	for (i = 0; i < count; ++i)
-		TouchPlaceControl(ids[i], x + (bw + gap) * (float)i, y, bw, bh, 1);
-}
-
 static int TouchCollectPresent(int* out, const int* ids, int count) {
 	int n = 0;
 	for (int i = 0; i < count; ++i)
@@ -420,122 +423,57 @@ static int TouchCollectPresent(int* out, const int* ids, int count) {
 	return n;
 }
 
-static void TouchPlaceExtras(float right, float bw, float bh, float gap) {
-	int ids[XVT_TOUCH_BUTTON_CAP];
-	int count = 0;
-	float anchor = g_controls[TOUCH_RIGHT].y;
-	float y;
-	for (int control = 0; control < TOUCH_COUNT; ++control) {
-		if (!g_controls[control].visible || control == TOUCH_LEFT || control == TOUCH_RIGHT ||
-			control == TOUCH_ESC)
-			continue;
-		if (g_controls[control].y < anchor)
-			anchor = g_controls[control].y;
-	}
-	for (int slot = XVT_TOUCH_BUTTON_COUNT; slot < XVT_TOUCH_BUTTON_CAP; ++slot) {
-		if (!TouchSlotPresent(slot))
-			continue;
-		ids[count++] = TOUCH_EXTRA + (slot - XVT_TOUCH_BUTTON_COUNT);
-	}
-	y = anchor - gap - bh;
-	for (int placed = 0; placed < count;) {
-		int row = count - placed;
-		if (row > 6)
-			row = 6;
-		TouchPlaceRow(ids + placed, row, right, y, bw, bh, gap);
-		placed += row;
-		y -= bh + gap;
-	}
-}
-
-static void TouchPlace(const TouchBounds* bounds, float radius) {
+static int TouchPlace(const TouchBounds* bounds, float radius, float factor) {
 	static const int k_row_top[] = { TOUCH_FRONT, TOUCH_NEXT, TOUCH_ATTACKER, TOUCH_WEAPONS, TOUCH_RATE };
 	static const int k_row_low[] = { TOUCH_SHIELDS, TOUCH_WEAPON_ENERGY, TOUCH_SHIELD_ENERGY, TOUCH_MAP };
+	static const int k_throttle[] = {
+		TOUCH_THROTTLE_ONE_THIRD, TOUCH_THROTTLE_TWO_THIRDS, TOUCH_THROTTLE_FULL
+	};
 	int row_top[5];
 	int row_low[4];
-	static const int k_throttle[] = { TOUCH_THROTTLE_ONE_THIRD, TOUCH_THROTTLE_TWO_THIRDS,
-									  TOUCH_THROTTLE_FULL };
 	int throttle[3];
-	int throttle_count;
-	int top_count;
-	int low_count;
-	float margin = radius * 0.2f;
-	float esc_w, esc_h, stick, gap, bw, bh, fire;
-	float width, height, row_right;
-	if (margin < 16.0f)
-		margin = 16.0f;
-	esc_w = radius * 1.85f;
-	esc_h = radius * 0.82f;
-	memset(g_controls, 0, sizeof g_controls);
-	if (g_show_esc)
-		TouchPlaceControl(TOUCH_ESC, bounds->left + margin, bounds->top + margin, esc_w, esc_h, 1);
-	if (!g_show_sticks)
+	int extras[XVT_TOUCH_BUTTON_CAP - XVT_TOUCH_BUTTON_COUNT];
+	int extras_count = 0;
+	float scales[TOUCH_COUNT];
+	XvtTouchLayoutRect rects[TOUCH_COUNT];
+	XvtTouchLayoutArea area;
+	XvtTouchLayoutPlan plan;
+	int ok;
+	int i;
+	int slot;
 
-		return;
-	stick = radius * 2.0f;
-	gap = radius * 0.14f;
-	if (gap < 8.0f)
-		gap = 8.0f;
-	bw = radius * 1.2f;
-	bh = radius * 0.74f;
-	fire = radius * 1.35f;
-	width = bounds->right - bounds->left;
-	height = bounds->bottom - bounds->top;
-	top_count = TouchCollectPresent(row_top, k_row_top, 5);
-	low_count = TouchCollectPresent(row_low, k_row_low, 4);
-	TouchPlaceControl(TOUCH_LEFT, bounds->left + margin, bounds->bottom - margin - stick, stick, stick, 1);
-	TouchPlaceControl(TOUCH_RIGHT, bounds->right - margin - stick, bounds->bottom - margin - stick, stick,
-					  stick, 1);
-	throttle_count = TouchCollectPresent(throttle, k_throttle, 3);
-	for (int i = 0; i < throttle_count; ++i)
-		TouchPlaceControl(throttle[i], g_controls[TOUCH_LEFT].x + (bw + gap) * (float)i,
-						  g_controls[TOUCH_LEFT].y - gap - bh, bw, bh, 1);
-	if (TouchSlotPresent(XvtTouchControl_Slot(TOUCH_FIRE)))
-		TouchPlaceControl(TOUCH_FIRE, g_controls[TOUCH_RIGHT].cx - fire * 0.5f,
-						  g_controls[TOUCH_RIGHT].y - gap - fire, fire, fire, 1);
-	row_right = g_controls[TOUCH_RIGHT].x + g_controls[TOUCH_RIGHT].w;
-	if (width > height * 1.35f) {
-		float inner_left = g_controls[TOUCH_LEFT].x + g_controls[TOUCH_LEFT].w + gap;
-		float inner_right = g_controls[TOUCH_RIGHT].x - gap;
-		float occupied = g_controls[TOUCH_RIGHT].y;
-		float top_limit = bounds->top + margin;
-		float y0, y1;
-		if (g_controls[TOUCH_FIRE].visible) {
-			inner_right = g_controls[TOUCH_FIRE].x - gap;
-			occupied = g_controls[TOUCH_FIRE].y;
-		}
-		for (int i = 0; i < TOUCH_COUNT; ++i) {
-			float right;
-			if (!TouchThrottleControl(i) || !g_controls[i].visible)
-				continue;
-			right = g_controls[i].x + g_controls[i].w + gap;
-			if (right > inner_left)
-				inner_left = right;
-			if (g_controls[i].y < occupied)
-				occupied = g_controls[i].y;
-		}
-		if (g_show_esc && g_controls[TOUCH_ESC].visible)
-			top_limit = g_controls[TOUCH_ESC].y + g_controls[TOUCH_ESC].h + gap;
-		y1 = occupied - gap - bh;
-		y0 = y1 - gap - bh;
-		if (y0 < top_limit) {
-			y0 = top_limit;
-			y1 = y0 + bh + gap;
-		}
-		if (inner_right > inner_left + bh * 4.0f) {
-			TouchPlaceSpan(row_top, top_count, inner_left, inner_right, y0, bh, gap);
-			TouchPlaceSpan(row_low, low_count, inner_left, inner_right, y1, bh, gap);
-		} else {
-			TouchPlaceRow(row_low, low_count, row_right, y1, bw, bh, gap);
-			TouchPlaceRow(row_top, top_count, row_right, y0, bw, bh, gap);
-		}
-	} else {
-		float y_low =
-			(g_controls[TOUCH_FIRE].visible ? g_controls[TOUCH_FIRE].y : g_controls[TOUCH_RIGHT].y) - gap - bh;
-		TouchPlaceRow(row_low, low_count, row_right, y_low, bw, bh, gap);
-		TouchPlaceRow(row_top, top_count, row_right, y_low - gap - bh, bw, bh, gap);
+	memset(g_controls, 0, sizeof g_controls);
+	area.left = bounds->left;
+	area.top = bounds->top;
+	area.right = bounds->right;
+	area.bottom = bounds->bottom;
+	for (i = 0; i < TOUCH_COUNT; ++i)
+		scales[i] = 1.0f + (g_norm_scale[i] - 1.0f) * factor;
+	plan.esc = g_show_esc ? TOUCH_ESC : -1;
+	plan.left = g_show_sticks ? TOUCH_LEFT : -1;
+	plan.right = g_show_sticks ? TOUCH_RIGHT : -1;
+	plan.fire = (g_show_sticks && TouchSlotPresent(XvtTouchControl_Slot(TOUCH_FIRE))) ? TOUCH_FIRE : -1;
+	plan.throttle = throttle;
+	plan.throttle_count = TouchCollectPresent(throttle, k_throttle, 3);
+	plan.row_top = row_top;
+	plan.row_top_count = TouchCollectPresent(row_top, k_row_top, 5);
+	plan.row_low = row_low;
+	plan.row_low_count = TouchCollectPresent(row_low, k_row_low, 4);
+	plan.extras = extras;
+	for (slot = XVT_TOUCH_BUTTON_COUNT; slot < XVT_TOUCH_BUTTON_CAP; ++slot) {
+		if (!TouchSlotPresent(slot))
+			continue;
+		extras[extras_count++] = TOUCH_EXTRA + (slot - XVT_TOUCH_BUTTON_COUNT);
 	}
-	TouchPlaceExtras(row_right, bw, bh, gap);
+	plan.extras_count = extras_count;
+	ok = XvtTouchLayout_Place(&area, radius, &plan, scales, rects, TOUCH_COUNT);
+	for (i = 0; i < TOUCH_COUNT; ++i) {
+		if (!rects[i].placed)
+			continue;
+		TouchPlaceControl(i, rects[i].x, rects[i].y, rects[i].w, rects[i].h, 1);
+	}
+
+	return ok;
 }
 
 static int TouchLayout(void) {
@@ -558,16 +496,24 @@ static int TouchLayout(void) {
 		radius = 96.0f;
 	/* Saved positions are normalized to the single flat screen, so they do not
 	 * apply to a pane of a folded Duo. */
+	/* A saved layout skips the fit and overlap checks. Dragged controls keep their saved spot, so a resize
+	 * can overlap a neighbor. Reset Control Positions restores the auto layout. */
 	custom = !g_split.active && TouchHasCustom();
 	for (int attempt = 0; attempt < 8; ++attempt) {
-		TouchPlace(&bounds, radius);
+		int placed = TouchPlace(&bounds, radius, 1.0f);
 		if (custom)
 			TouchApplyPlaces(&bounds);
-		if (custom || TouchLayoutFits(&bounds))
+		if (custom || (placed && TouchLayoutFits(&bounds))) {
+
 			return 1;
+		}
 		radius *= 0.86f;
 	}
-	TouchPlace(&bounds, radius);
+	/* Shrink enlarged sizes toward the default until nothing overlaps or leaves the screen. */
+	for (int step = 0; step <= 10; ++step) {
+		if (TouchPlace(&bounds, radius, (float)(10 - step) / 10.0f) && TouchInside(&bounds))
+			break;
+	}
 	if (custom)
 		TouchApplyPlaces(&bounds);
 	if (!g_show_sticks && g_show_esc) {
@@ -700,6 +646,16 @@ static void TouchStick(int index, float* x, float* y) {
 			dx /= magnitude;
 			dy /= magnitude;
 		}
+		{
+			const XvtSettings* settings = XvtConfig_Settings();
+			float deadzone = XVT_TOUCH_STICK_DEADZONE_DEFAULT;
+			float sensitivity = (float)XVT_TOUCH_STICK_SENSITIVITY_DEFAULT;
+			if (settings) {
+				deadzone = settings->touch_stick_deadzone;
+				sensitivity = settings->touch_stick_sensitivity;
+			}
+			XvtTouchStick_Shape(&dx, &dy, deadzone, sensitivity);
+		}
 		*x = dx;
 		*y = dy;
 		return;
@@ -800,7 +756,8 @@ static void TouchEscPressed(void) {
 static void TouchFinishArrange(void) {
 	char error[256];
 	g_arrange = 0;
-	if (!XvtConfig_SetTouchPlaces(g_norm_x, g_norm_y, error, sizeof error))
+	g_pinch.control = -1;
+	if (!XvtConfig_SetTouchPlaces(g_norm_x, g_norm_y, g_norm_scale, error, sizeof error))
 		Aeron_LogWarn("xvt.input", "%s", error);
 	g_place_generation = XvtConfig_Generation();
 }
@@ -834,7 +791,30 @@ static void TouchHandleFinger(const SDL_Event* event) {
 		g_fingers[slot].control = -1;
 		g_fingers[slot].mouse = TouchMouseFinger() < 0;
 		hit = TouchHit(x, y);
-		if (hit >= 0 && !TouchControlTaken(hit, slot)) {
+		if (hit >= 0 && g_arrange && !g_split.active && TouchControlTaken(hit, slot)) {
+			int owner = -1;
+			for (int i = 0; i < TOUCH_FINGER_MAX; ++i) {
+				if (i != slot && g_fingers[i].down && g_fingers[i].control == hit) {
+					owner = i;
+					break;
+				}
+			}
+			if (owner >= 0) {
+				float dx = g_fingers[owner].x - x;
+				float dy = g_fingers[owner].y - y;
+				float distance = sqrtf(dx * dx + dy * dy);
+				if (distance >= XVT_TOUCH_PINCH_MIN_DISTANCE) {
+					g_pinch.control = hit;
+					g_pinch.a = owner;
+					g_pinch.b = slot;
+					g_pinch.start_distance = distance;
+					g_pinch.start_scale = g_norm_scale[hit];
+					g_fingers[owner].moved = 1;
+					if (g_fingers[slot].mouse)
+						g_block_touch_mouse = 1;
+				}
+			}
+		} else if (hit >= 0 && !TouchControlTaken(hit, slot)) {
 			g_fingers[slot].control = hit;
 			g_fingers[slot].grab_x = x - g_controls[hit].cx;
 			g_fingers[slot].grab_y = y - g_controls[hit].cy;
@@ -864,7 +844,15 @@ static void TouchHandleFinger(const SDL_Event* event) {
 						   &g_bounds);
 			TouchRememberCenter(g_fingers[slot].control, &g_bounds);
 		}
+		if (g_arrange && g_pinch.control >= 0 && (slot == g_pinch.a || slot == g_pinch.b)) {
+			float dx = g_fingers[g_pinch.a].x - g_fingers[g_pinch.b].x;
+			float dy = g_fingers[g_pinch.a].y - g_fingers[g_pinch.b].y;
+			g_norm_scale[g_pinch.control] = XvtTouchTuning_PinchScale(
+				g_pinch.start_scale, g_pinch.start_distance, sqrtf(dx * dx + dy * dy));
+		}
 		if (up) {
+			if (g_pinch.control >= 0 && (slot == g_pinch.a || slot == g_pinch.b))
+				g_pinch.control = -1;
 			if (g_arrange && g_fingers[slot].control == TOUCH_ESC && !g_fingers[slot].moved)
 				TouchFinishArrange();
 			if (g_fingers[slot].control >= 0)
@@ -908,6 +896,7 @@ static void TouchClearFingers(void) {
 	memset(g_pulse, 0, sizeof g_pulse);
 	g_block_touch_mouse = 0;
 	g_block_until_release = 0;
+	g_pinch.control = -1;
 }
 
 static int TouchPhysicalPresent(const AeronInputSnapshot* input) {
@@ -1000,6 +989,8 @@ static void TouchInstallLive(int active) {
 	}
 	live.models[index].kind = AERON_CONTROLLER_KIND_GAMEPAD;
 	live.models[index].profile = XvtConfig_DefaultSettings()->gamepad_defaults;
+	for (int axis = 0; axis < XVT_INPUT_AXIS_COUNT; ++axis)
+		live.models[index].profile.mapping.axes[axis].deadzone = 0.0f;
 	TouchApplyButtons(&live.models[index].profile);
 	for (size_t i = 0; i < live.count; ++i) {
 		if ((int)i == index)
@@ -1198,7 +1189,7 @@ static void TouchPaint(void) {
 		hint.h = 42.0f;
 		hint.cx = (g_bounds.left + g_bounds.right) * 0.5f;
 		hint.cy = hint.y + hint.h * 0.5f;
-		TouchAddLabel(&hint, "Drag a control. Tap ESC when finished.");
+		TouchAddLabel(&hint, "Drag to move. Pinch to resize. Tap ESC when finished.");
 	}
 }
 
@@ -1222,6 +1213,7 @@ void XvtTouchControls_Init(const struct AeronFontAtlas* font) {
 	for (int i = 0; i < TOUCH_COUNT; ++i) {
 		g_norm_x[i] = -1.0f;
 		g_norm_y[i] = -1.0f;
+		g_norm_scale[i] = (float)XVT_TOUCH_SCALE_DEFAULT;
 	}
 	g_list = AeronDrawList_Create(256);
 	if (!g_list)
@@ -1307,6 +1299,8 @@ void XvtTouchControls_Sync(const AeronInputSnapshot* input) {
 			g_logged_valid = 1;
 		}
 	}
+	if (g_arrange && g_split.active)
+		TouchFinishArrange();
 	menu = XvtSettingsMenu_Open();
 	active = mode == XVT_TOUCH_CONTROLS_ON || (mode == XVT_TOUCH_CONTROLS_AUTOMATIC && !physical);
 	g_show_sticks = !menu && (active || g_arrange);
@@ -1467,7 +1461,8 @@ void XvtTouchControls_DrawMenu(struct AeronUiContext* ui, const AeronInputSnapsh
 	if (g_split.active)
 		AeronUi_Help(ui, "Move Controls is unavailable in the laptop pose. Open the Duo flat to move the controls.");
 	else
-		AeronUi_Help(ui, "Move Controls lets you drag each control. The mission stays paused until you tap ESC.");
+		AeronUi_Help(ui, "Drag a control to move it. Pinch a control with two fingers to resize it. "
+						"The mission stays paused until you tap ESC.");
 	{
 		const XvtSettings* opacity_settings = XvtConfig_Settings();
 		int transparency = 0;
@@ -1486,6 +1481,41 @@ void XvtTouchControls_DrawMenu(struct AeronUiContext* ui, const AeronInputSnapsh
 		}
 	}
 	AeronUi_Help(ui, "Transparency fades the on-screen controls. Zero is solid.");
+	AeronUi_Header(ui, "Sticks");
+	{
+		const XvtSettings* stick_settings = XvtConfig_Settings();
+		int deadzone = 8;
+		int sensitivity = 100;
+		if (stick_settings && isfinite(stick_settings->touch_stick_deadzone))
+			deadzone = (int)lroundf(stick_settings->touch_stick_deadzone * 100.0f);
+		if (deadzone < 0)
+			deadzone = 0;
+		if (deadzone > 50)
+			deadzone = 50;
+		if (AeronUi_SliderInt(ui, "Stick Deadzone", &deadzone, 0, 50, 1, "%d%%")) {
+			char error[256];
+			if (XvtConfig_SetTouchStickDeadzone((float)deadzone / 100.0f, error, sizeof error))
+				g_menu_error[0] = 0;
+			else
+				snprintf(g_menu_error, sizeof g_menu_error, "%s", error);
+		}
+		AeronUi_Help(ui, "Ignores small stick movement near center. Zero responds to every movement.");
+		if (stick_settings && isfinite(stick_settings->touch_stick_sensitivity))
+			sensitivity = (int)lroundf(stick_settings->touch_stick_sensitivity * 100.0f);
+		if (sensitivity < 50)
+			sensitivity = 50;
+		if (sensitivity > 200)
+			sensitivity = 200;
+		if (AeronUi_SliderInt(ui, "Stick Sensitivity", &sensitivity, 50, 200, 5, "%d%%")) {
+			char error[256];
+			if (XvtConfig_SetTouchStickSensitivity((float)sensitivity / 100.0f, error, sizeof error))
+				g_menu_error[0] = 0;
+			else
+				snprintf(g_menu_error, sizeof g_menu_error, "%s", error);
+		}
+		AeronUi_Help(ui, "Scales stick deflection. Above 100% reaches full deflection sooner. "
+						"Below 100% caps the deflection.");
+	}
 	if (AeronUi_Button(ui, "Reset Control Positions")) {
 		char error[256];
 		for (int i = 0; i < TOUCH_COUNT; ++i) {
@@ -1493,6 +1523,15 @@ void XvtTouchControls_DrawMenu(struct AeronUiContext* ui, const AeronInputSnapsh
 			g_norm_y[i] = -1.0f;
 		}
 		if (XvtConfig_ClearTouchPlaces(error, sizeof error))
+			g_place_generation = XvtConfig_Generation();
+		else
+			snprintf(g_menu_error, sizeof g_menu_error, "%s", error);
+	}
+	if (AeronUi_Button(ui, "Reset Control Sizes")) {
+		char error[256];
+		for (int i = 0; i < TOUCH_COUNT; ++i)
+			g_norm_scale[i] = (float)XVT_TOUCH_SCALE_DEFAULT;
+		if (XvtConfig_ClearTouchScales(error, sizeof error))
 			g_place_generation = XvtConfig_Generation();
 		else
 			snprintf(g_menu_error, sizeof g_menu_error, "%s", error);

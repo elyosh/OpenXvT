@@ -32,15 +32,19 @@ bool XvtConfig_SetSkipIntro(bool enabled, char* error, size_t capacity);
 bool XvtConfig_SetTouchControls(int mode, char* error, size_t capacity);
 /* 0 restores the shipped solid look. Values above 1 are rejected. */
 bool XvtConfig_SetTouchTransparency(float transparency, char* error, size_t capacity);
+bool XvtConfig_SetTouchStickDeadzone(float value, char* error, size_t capacity);
+bool XvtConfig_SetTouchStickSensitivity(float value, char* error, size_t capacity);
 /* slot is a present command button. ESC is not a slot. */
 bool XvtConfig_SetTouchButton(int slot, int action, char* error, size_t capacity);
 /* Fills the first empty slot. Fails at XVT_TOUCH_BUTTON_CAP present buttons. */
 bool XvtConfig_AddTouchButton(int* out_slot, char* error, size_t capacity);
 bool XvtConfig_RemoveTouchButton(int slot, char* error, size_t capacity);
 bool XvtConfig_ClearTouchButtons(char* error, size_t capacity);
-/* x and y are indexed by XVT_TOUCH_CONTROL_*. Below zero restores the shipped position. */
-bool XvtConfig_SetTouchPlaces(const float* x, const float* y, char* error, size_t capacity);
+/* x, y, and scale are indexed by XVT_TOUCH_CONTROL_*. Below zero restores the shipped position. */
+bool XvtConfig_SetTouchPlaces(const float* x, const float* y, const float* scale, char* error,
+							  size_t capacity);
 bool XvtConfig_ClearTouchPlaces(char* error, size_t capacity);
+bool XvtConfig_ClearTouchScales(char* error, size_t capacity);
 int XvtConfig_Apply(GameConfig* game, char* error, size_t capacity);
 int XvtConfig_Write(const GameConfig* game, char* error, size_t capacity);
 int XvtConfig_Save(char* error, size_t capacity);

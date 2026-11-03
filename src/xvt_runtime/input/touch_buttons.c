@@ -153,6 +153,7 @@ void XvtTouchButtons_Reset(XvtTouchButtonSlot* slots) {
 	for (i = 0; i < XVT_TOUCH_BUTTON_CAP; ++i) {
 		slots[i].x = -1.0f;
 		slots[i].y = -1.0f;
+		slots[i].scale = 1.0f;
 	}
 	for (i = 0; i < XVT_TOUCH_BUTTON_COUNT; ++i) {
 		slots[i].present = 1;
