@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ARG SDL_VERSION=3.4.14
+ARG SDL_VERSION=3.4.18
 ARG ZSTD_VERSION=1.5.7
 ARG FFMPEG_VERSION=8.0.1
 ARG SHADERCROSS_COMMIT=6b06e55c7c5d7e7a09a8a14f76e866dcfad5ab99

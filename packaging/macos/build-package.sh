@@ -5,7 +5,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 
-sdl_version="${SDL_VERSION:-3.4.14}"
+sdl_version="${SDL_VERSION:-3.4.18}"
 zstd_version="${ZSTD_VERSION:-1.5.7}"
 ffmpeg_version="${FFMPEG_VERSION:-8.0.1}"
 shadercross_commit="${SHADERCROSS_COMMIT:-6b06e55c7c5d7e7a09a8a14f76e866dcfad5ab99}"
