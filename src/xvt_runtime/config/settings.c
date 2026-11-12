@@ -56,6 +56,8 @@ static const XvtSettingField g_fields[] = {
 	SETTING_INT("point_lights.cluster_depth_slices", render.point_lights.cluster_depth_slices, 4, 64),
 	SETTING_FLOAT("point_lights.scale", render.point_lights.scale, 0, FLT_MAX),
 	SETTING_FLOAT("point_lights.range_scale", render.point_lights.range_scale, FLT_MIN, FLT_MAX),
+	SETTING_FLOAT("point_lights.match_distance_m", render.point_lights.match_distance_m, FLT_MIN, FLT_MAX),
+	SETTING_FLOAT("lighting.classic_illuminance", render.lighting.classic_illuminance, FLT_MIN, 2000),
 	SETTING_BOOL("lighting.spec_geom_adapt", render.lighting.spec_geom_adapt),
 	SETTING_FLOAT("lighting.ambient_r", render.lighting.ambient[0], 0, FLT_MAX),
 	SETTING_FLOAT("lighting.ambient_g", render.lighting.ambient[1], 0, FLT_MAX),

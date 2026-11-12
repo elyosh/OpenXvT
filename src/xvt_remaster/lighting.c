@@ -1,4 +1,5 @@
 #include "xvt_remaster/lighting.h"
+#include "aeron/asset/opt_model.h"
 #include "aeron/scene/world.h"
 #include "xvt/flight/object/laser.h"
 #include "xvt_remaster/config.h"
@@ -42,17 +43,31 @@ typedef struct PbrLightFS {
 
 typedef char XvtPbrSizeCheck[sizeof(PbrLightFS) == 368 ? 1 : -1];
 
-void XvtLighting_AddPoint(AeronScene3D* scene, const float position[3], const float color[3], float intensity,
-						  float minimum_range) {
+/* The radius of the sphere a point light shines from, as OpenXWA's. */
+#define XVT_POINT_LIGHT_SOURCE_RADIUS_M 0.25f
+
+void XvtLighting_AddPoint(AeronScene3D* scene, const float position[3], const float color[3],
+						  float intensity) {
 	const XvtPointLightSettings* p = &XvtRemasterConfig_Effective()->point_lights;
 	if (!p->enabled || !(intensity > 0) || !isfinite(intensity) || p->scale <= 0)
 		return;
-	/* XWA's 1% visibility window for its 0.5 / distance response. Aeron now
-	 * shades inverse-square, so the range and scale want retuning. */
-	AeronSceneLight light = { .radius = fmaxf(minimum_range, intensity * 50) * p->range_scale };
+	/* The classic law lights a surface by 0.5 * c / d, as a directional light
+	 * of brightness 0.5 * c / d would. Such a light gives an illuminance of
+	 * G times its brightness (lighting.classic_illuminance), and a point
+	 * light I / d^2: equal at the match distance D (world units) when
+	 * I = 0.5 * c * D * G, brighter closer and dimmer farther. */
+	const float scale = 0.5f * p->match_distance_m * AERON_OPT_UNITS_PER_METER *
+						XvtRemasterConfig_Effective()->lighting.classic_illuminance * p->scale;
+	AeronSceneLight light = { .source_radius = XVT_POINT_LIGHT_SOURCE_RADIUS_M * AERON_OPT_UNITS_PER_METER };
 	memcpy(light.pos, position, sizeof light.pos);
-	for (int c = 0; c < 3; ++c)
-		light.color[c] = color[c] * intensity * p->scale;
+	float peak = 0;
+	for (int c = 0; c < 3; ++c) {
+		light.color[c] = color[c] * intensity * scale;
+		peak = fmaxf(peak, light.color[c]);
+	}
+	/* The light ends where its illuminance falls under the cutoff; the
+	 * flight's exposure is 1. */
+	light.radius = sqrtf(peak / AERON_SCENE_LIGHT_CUTOFF) * p->range_scale;
 	if (!(light.radius > 0) || !isfinite(light.radius))
 		return;
 	for (int c = 0; c < 3; ++c)
@@ -189,18 +204,17 @@ int XvtLighting_Begin(AeronScene3D* scene, const XvtRenderSnapshot* s) {
 		const XvtSnapObject* o = &s->objects[i];
 		if (o->slot_class == XVT_SLOT_STATIC)
 			continue;
-		float intensity = 0, color[3] = { 1, 1, 1 }, minimum_range = 1024, position[3];
+		float intensity = 0, color[3] = { 1, 1, 1 }, position[3];
 		if (o->genus == CRAFT_GENUS_EXPLOSION) {
 			intensity = ExplosionIntensity(o);
 			/* OpenTIE's sRGB explosion color (0.9, 0.5, 0.2), converted to linear. */
 			color[0] = .7874123f;
 			color[1] = .2140411f;
 			color[2] = .03310477f;
-			minimum_range = 0;
 		} else if (o->genus == CRAFT_GENUS_PLAYER_PROJECTILE || o->genus == CRAFT_GENUS_OTHER_PROJECTILE)
 			intensity = ProjectileLight(o->object_type, color);
 		AeronWorld_LocalI32(s->camera.world_pos, o->world_pos, position);
-		XvtLighting_AddPoint(scene, position, color, intensity, minimum_range);
+		XvtLighting_AddPoint(scene, position, color, intensity);
 	}
 	return 1;
 }
@@ -227,7 +241,8 @@ void XvtRemasterShip_SetEnvironment(AeronScene3D* scene, const XvtSnapLighting* 
 											   eye_camera->rows[i * 3 + 1] * direction[1] +
 											   eye_camera->rows[i * 3 + 2] * direction[2])
 											: direction[i];
-		env.sun_color[i] = light->directional_enabled ? 1 : 0;
+		/* The game's sun has no brightness of its own: brightness 1. */
+		env.sun_color[i] = light->directional_enabled ? settings->classic_illuminance : 0;
 		env.amb_pos_x[i] = env.amb_neg_x[i] = env.amb_pos_y[i] = env.amb_neg_y[i] = env.amb_pos_z[i] =
 			env.amb_neg_z[i] = settings->ambient[i];
 	}
@@ -240,7 +255,8 @@ void XvtRemasterShip_SetEnvironment(AeronScene3D* scene, const XvtSnapLighting* 
 	XvtHyperLighting hyper;
 	if (!eye_camera && XvtHyperspace_Lighting(scene, &hyper)) {
 		memcpy(env.directional_dir, hyper.direction, sizeof hyper.direction);
-		memcpy(env.sun_color, hyper.color, sizeof hyper.color);
+		for (int i = 0; i < 3; ++i)
+			env.sun_color[i] = hyper.color[i] * settings->classic_illuminance;
 		/* Rows are the cube's right, up and forward axes in world space. */
 		AeronScene_SetPbrEnvironment(
 			scene, &(AeronScenePbrEnvironment) { .diffuse = hyper.texture,

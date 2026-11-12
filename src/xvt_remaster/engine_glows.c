@@ -296,8 +296,7 @@ static void Lights(AeronScene3D* scene, const AeronSceneMesh* mesh, const XvtSna
 		for (int r = 0; r < 3; ++r)
 			world[r] = transform[r * 4] * local[0] + transform[r * 4 + 1] * local[1] +
 					   transform[r * 4 + 2] * local[2] + transform[r * 4 + 3];
-		XvtLighting_AddPoint(scene, world, color, g->dimensions.z * AERON_OPT_UNITS_PER_METER * power * 300,
-							 power * 16384);
+		XvtLighting_AddPoint(scene, world, color, g->dimensions.z * AERON_OPT_UNITS_PER_METER * power * 300);
 	}
 }
 

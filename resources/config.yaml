@@ -382,10 +382,16 @@ texture_filtering:
   max_anisotropy: 8
 models:
   smooth_angle_degrees: 90
-  opt_emissive_strength: 1.5
-  opt_projectile_emissive_strength: 5
-  engine_emissive_strength: 2.5
+  opt_emissive_strength: 3.0
+  opt_projectile_emissive_strength: 20.0
+  engine_emissive_strength: 10.0
 lighting:
+  # Converts the classic game's lights (the sun, lasers, explosions,
+  # engines), which have no unit: the illuminance of a classic light of
+  # brightness 1. Surfaces take light / pi (Lambert), so 2.513 (0.8 * pi)
+  # lights a face toward the sun at 0.8, as the remaster did before; pi
+  # matches the classic law.
+  classic_illuminance: 3.14159
   spec_geom_adapt: true
   ambient_r: 0.08
   ambient_g: 0.08
@@ -395,9 +401,15 @@ point_lights:
   cluster_depth_slices: 24
   cluster_debug: false
   scale: 1
+  # The game's lights (lasers, explosions, engines) are inverse-square
+  # sphere lights from the classic intensities. This many metres away they
+  # give what the classic law gives: brighter closer, dimmer farther.
+  match_distance_m: 27.5
+  # Multiplies the distance where a light falls under 1/250 of the sun's
+  # illuminance, and ends.
   range_scale: 1
 bloom:
-  intensity: 0.5
+  intensity: 0.15
 skybox:
   enabled: true
   mode: "stars"

@@ -22,10 +22,12 @@ typedef struct XvtModelSettings {
 
 typedef struct XvtPointLightSettings {
 	int enabled, cluster_depth_slices, cluster_debug;
-	float scale, range_scale;
+	float scale, range_scale, match_distance_m;
 } XvtPointLightSettings;
 
 typedef struct XvtLightingSettings {
+	/* Illuminance of a classic light of brightness 1 (sun, point lights). */
+	float classic_illuminance;
 	int spec_geom_adapt;
 	float ambient[3];
 } XvtLightingSettings;
