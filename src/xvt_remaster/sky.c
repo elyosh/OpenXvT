@@ -1,17 +1,12 @@
 #include "xvt_remaster/sky.h"
 #include "aeron/aeron.h"
-#include "aeron/scene/image_cache.h"
 #include "xvt_remaster/config.h"
 #include "xvt_remaster/effects.h"
 #include "xvt_remaster/hyperspace.h"
 #include "xvt_remaster/sky_stars.h"
 #include <math.h>
-#include <stdio.h>
-#include <string.h>
 
 static XvtRemasterSkyStars* g_stars;
-static AeronTexture* g_cube;
-static char g_cubePath[XVT_SNAP_PATH];
 static int g_hyper, g_drawStars;
 
 static void Background(AeronCommandBuffer* cmd, AeronRenderPass* pass, int w, int h, void* user) {
@@ -88,24 +83,12 @@ int XvtSky_Prepare(AeronCommandBuffer* cmd, AeronScene3D* scene, const XvtRender
 	const XvtSkySettings* p = &XvtRemasterConfig_Effective()->sky;
 	g_hyper = s->hyperspace.phase == XVT_SNAP_HYPERSPACE_TRANSITION;
 	g_drawStars = 0;
-	AeronScene_SetSkyCube(scene, NULL, NULL, 1);
 	AeronScene_SetPassHook(scene, AERON_SCENE_HOOK_BEFORE_OPAQUE, Background, NULL);
 	if (!XvtHyperspace_Prepare(cmd, s, scene, view))
 		return 0;
 	if (g_hyper)
 		return 1;
-	if (p->enabled && p->mode == XVT_SKY_CUBE) {
-		if (!g_cube || strcmp(g_cubePath, p->path)) {
-			AeronTexture* cube = Aeron_ImageLoadCubemapKtx2Vfs(cmd, Aeron_GetVfs(), AERON_VFS_ROOT_ASSET,
-															   p->path, 256u * 1024u * 1024u);
-			if (!cube)
-				return 0;
-			Aeron_DestroyTexture(g_cube);
-			g_cube = cube;
-			snprintf(g_cubePath, sizeof g_cubePath, "%s", p->path);
-		}
-		AeronScene_SetSkyCube(scene, g_cube, NULL, p->exposure);
-	} else if (p->enabled) {
+	if (p->enabled) {
 		if (!g_stars)
 			g_stars = XvtRemasterSkyStars_Create();
 		if (!g_stars)
@@ -127,8 +110,5 @@ int XvtSky_Prepare(AeronCommandBuffer* cmd, AeronScene3D* scene, const XvtRender
 void XvtSky_Shutdown(void) {
 	XvtRemasterSkyStars_Destroy(g_stars);
 	g_stars = NULL;
-	Aeron_DestroyTexture(g_cube);
-	g_cube = NULL;
-	g_cubePath[0] = 0;
 	XvtHyperspace_Shutdown();
 }

@@ -89,7 +89,7 @@ static void Submit(AeronScene3D* scene, const AeronSceneMesh* mesh, const float 
 	for (uint32_t gi = 0; gi < mesh->engine_glow_count; gi++) {
 		const AeronFlightEngineGlow* g = &mesh->engine_glows[gi];
 		if (!g->enabled ||
-			(table && (g->component_index >= AERON_MAX_MESH_SLOTS ||
+			(table && (g->component_index >= AERON_MAX_MESH_COMPONENTS ||
 					   !table->visibility_packed[g->component_index >> 2][g->component_index & 3]))) {
 			continue;
 		}
@@ -101,7 +101,7 @@ static void Submit(AeronScene3D* scene, const AeronSceneMesh* mesh, const float 
 		float ax_look[3] = { g->look.x, g->look.y, g->look.z };
 		float ax_right[3] = { g->right.x, g->right.y, g->right.z };
 		float ax_up[3] = { g->up.x, g->up.y, g->up.z };
-		if (table && g->component_index < AERON_MAX_MESH_SLOTS) {
+		if (table && g->component_index < AERON_MAX_MESH_COMPONENTS) {
 			const float (*rw)[4] = table->rows[g->component_index];
 			float tp[3], tv[3];
 			for (int r = 0; r < 3; r++) {
@@ -281,7 +281,7 @@ static void Lights(AeronScene3D* scene, const AeronSceneMesh* mesh, const XvtSna
 	for (unsigned i = 0; i < mesh->engine_glow_count; ++i) {
 		const AeronFlightEngineGlow* g = &mesh->engine_glows[i];
 		unsigned c = g->component_index;
-		if (!g->enabled || c >= AERON_MAX_MESH_SLOTS || !table->visibility_packed[c >> 2][c & 3])
+		if (!g->enabled || c >= AERON_MAX_MESH_COMPONENTS || !table->visibility_packed[c >> 2][c & 3])
 			continue;
 		float dx = g->dimensions.x * AERON_OPT_UNITS_PER_METER;
 		float dy = g->dimensions.y * AERON_OPT_UNITS_PER_METER;

@@ -121,8 +121,8 @@ void XvtHudDraw_Part(const XvtHudDraw* draw, XvtHudSpriteRole role, unsigned sta
 		return;
 	const XvtHudPreparedPart* part = &draw->assets->bindings[binding->first_part + state];
 	const AeronRuntimeAtlas* atlas = &draw->assets->parts;
-	float width = atlas->layout.classic_w[part->atlas_frame],
-		  height = atlas->layout.classic_h[part->atlas_frame];
+	float width = atlas->layout.size[(part->atlas_frame) * 2],
+		  height = atlas->layout.size[(part->atlas_frame) * 2 + 1];
 	AppendAtlasSprite(draw, atlas, part->atlas_frame,
 					  binding->x + offset_x - (binding->mirrored ? width - 1 : 0), binding->y + offset_y, 0,
 					  0, width, height, binding->mirrored, part->monochrome,

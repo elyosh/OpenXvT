@@ -159,7 +159,6 @@ int XvtRemasterFlight_Render(AeronCommandBuffer* cmd, const XvtRenderSnapshot* s
 											s->camera.world_pos, instance.prev_transform);
 			instance.base_color_emissive_strength =
 				XvtRemasterConfig_Effective()->models.opt_projectile_emissive_strength;
-			instance.no_local_lights = 1;
 			instance.shadow_flags =
 				AERON_SCENE_INSTANCE_NO_CAST_SHADOW | AERON_SCENE_INSTANCE_NO_RECEIVE_SHADOW;
 			instance.cull_mode = AERON_CULL_NONE;
@@ -177,8 +176,8 @@ int XvtRemasterFlight_Render(AeronCommandBuffer* cmd, const XvtRenderSnapshot* s
 		}
 		if (object->genus == CRAFT_GENUS_OBSTACLE && asset->component_count) {
 			unsigned hull = asset->component_count - 1;
-			for (unsigned m = 0; m < asset->component_count && m < AERON_MAX_MESH_SLOTS; ++m)
-				if (asset->mesh->mesh_rot[m].mesh_type == XVT_SNAP_MESH_HULL) {
+			for (unsigned m = 0; m < asset->component_count && m < AERON_MAX_MESH_COMPONENTS; ++m)
+				if (asset->mesh->component_rot[m].mesh_type == XVT_SNAP_MESH_HULL) {
 					hull = m;
 					break;
 				}

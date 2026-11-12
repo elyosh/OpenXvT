@@ -91,8 +91,7 @@ void XvtFlightPipeline_Post(AeronScene3D* scene, float shutter, int motion) {
 													  .mb_quality = motion ? m->quality : 0,
 													  .mb_shutter = shutter,
 													  .mb_camera_blur = m->camera_blur,
-													  .mb_velocity_viz = motion && m->velocity_viz,
-													  .mb_fsr_direct_motion = m->fsr_direct_motion });
+													  .mb_velocity_viz = motion && m->velocity_viz });
 }
 
 int XvtFlightPipeline_Begin(AeronScene3D* scene, const XvtRenderSnapshot* s, const XvtPreparedFlight* frame,
@@ -119,7 +118,7 @@ int XvtFlightPipeline_Begin(AeronScene3D* scene, const XvtRenderSnapshot* s, con
 	AeronScene_SetMotionContext(
 		scene,
 		reset ? NULL : (frame->regenerate_motion ? frame->previous_view.view_proj : frame->view.view_proj),
-		reset || frame->regenerate_motion);
+		NULL, reset || frame->regenerate_motion);
 	return 1;
 }
 
@@ -203,8 +202,8 @@ int XvtFlightPipeline_Retain(AeronCommandBuffer* cmd) {
 													   .debug_label = "XvT flight tonemap" });
 	if (!pass)
 		return 0;
-	AeronScenePresentChain_Draw(g_present, pass, g_color, g_sampler, g_bloomTexture, g_intensity, g_width,
-								g_height, 1, (const float[4]) { 1, 1, 1, 1 }, 0);
+	AeronScenePresentChain_Draw(g_present, pass, g_color, g_sampler, g_bloomTexture, g_intensity, 1, NULL,
+								g_width, g_height, 1, (const float[4]) { 1, 1, 1, 1 }, 0);
 	/* Mask after tonemapping so bloom cannot brighten the bars. */
 	if (g_barsVisible)
 		AeronDrawList_RenderIntoPass(g_bars, cmd, pass, g_target);
@@ -244,8 +243,8 @@ static void Direct(AeronCommandBuffer* cmd, AeronRenderPass* pass, AeronRenderTa
 	AeronRectI full = { 0, 0, width, height };
 	Aeron_SetViewport(pass, &full);
 	Aeron_SetScissor(pass, &full);
-	AeronScenePresentChain_Draw(g_direct, pass, g_color, g_sampler, g_bloomTexture, g_intensity, width,
-								height, 1, (const float[4]) { 1, 1, 1, 1 }, 0);
+	AeronScenePresentChain_Draw(g_direct, pass, g_color, g_sampler, g_bloomTexture, g_intensity, 1, NULL,
+								width, height, 1, (const float[4]) { 1, 1, 1, 1 }, 0);
 	if (g_barsVisible)
 		AeronDrawList_RenderIntoPass(g_bars, cmd, pass, target);
 }

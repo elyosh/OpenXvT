@@ -42,7 +42,6 @@ static const XvtSettingField g_fields[] = {
 	SETTING_BOOL("render.motion_blur.camera_blur", render.motion_blur.camera_blur),
 	SETTING_BOOL("render.motion_blur.pause_keep_blur", render.motion_blur.pause_keep_blur),
 	SETTING_BOOL("render.motion_blur.velocity_viz", render.motion_blur.velocity_viz),
-	SETTING_BOOL("render.motion_blur.fsr_direct_motion", render.motion_blur.fsr_direct_motion),
 	SETTING_INT("render.motion_blur.quality", render.motion_blur.quality, 0, 2),
 	SETTING_FLOAT("render.motion_blur.shutter", render.motion_blur.shutter, 0, 1),
 	SETTING_BOOL("texture_filtering.anisotropic", render.anisotropic),
@@ -53,24 +52,15 @@ static const XvtSettingField g_fields[] = {
 				  0, FLT_MAX),
 	SETTING_FLOAT("models.engine_emissive_strength", render.models.engine_emissive_strength, 0, FLT_MAX),
 	SETTING_BOOL("point_lights.enabled", render.point_lights.enabled),
-	SETTING_BOOL("point_lights.clustered", render.point_lights.clustered),
 	SETTING_BOOL("point_lights.cluster_debug", render.point_lights.cluster_debug),
 	SETTING_INT("point_lights.cluster_depth_slices", render.point_lights.cluster_depth_slices, 4, 64),
 	SETTING_FLOAT("point_lights.scale", render.point_lights.scale, 0, FLT_MAX),
 	SETTING_FLOAT("point_lights.range_scale", render.point_lights.range_scale, FLT_MIN, FLT_MAX),
-	SETTING_FLOAT("point_lights.min_distance", render.point_lights.min_distance, FLT_MIN, FLT_MAX),
-	SETTING_FLOAT("point_lights.spec_weight", render.point_lights.spec_weight, 0, FLT_MAX),
-	SETTING_FLOAT("point_lights.diffuse_wrap", render.point_lights.diffuse_wrap, 0, 1),
-	SETTING_FLOAT("point_lights.contrib_cap", render.point_lights.contrib_cap, 0, FLT_MAX),
-	SETTING_FLOAT("lighting.intensity", render.lighting.intensity, 0, FLT_MAX),
-	SETTING_FLOAT("lighting.spec_mul", render.lighting.spec_mul, 0, FLT_MAX),
-	SETTING_FLOAT("lighting.wrap", render.lighting.wrap, 0, 1),
 	SETTING_BOOL("lighting.spec_geom_adapt", render.lighting.spec_geom_adapt),
 	SETTING_FLOAT("lighting.ambient_r", render.lighting.ambient[0], 0, FLT_MAX),
 	SETTING_FLOAT("lighting.ambient_g", render.lighting.ambient[1], 0, FLT_MAX),
 	SETTING_FLOAT("lighting.ambient_b", render.lighting.ambient[2], 0, FLT_MAX),
 	SETTING_BOOL("skybox.enabled", render.sky.enabled),
-	SETTING_STRING("skybox.path", render.sky.path),
 	SETTING_FLOAT("skybox.exposure", render.sky.exposure, 0, FLT_MAX),
 	SETTING_FLOAT("skybox.star_brightness", render.sky.star_brightness, 0, FLT_MAX),
 	SETTING_FLOAT("hyperspace_tunnel.travel_speed", render.hyperspace.travel_speed, FLT_MIN, 64),
@@ -231,8 +221,9 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 	static const char* const flight_rates[] = { "native", "unlocked" };
 	static const char* const window_modes[] = { "windowed", "fullscreen" };
 	static const char* const temporal_modes[] = { "off", "native_aa", "quality", "balanced", "performance" };
-	static const char* const sky_modes[] = { "stars", "cube", "procedural" };
-	int temporal_mode;
+	/* Both draw the procedural star field. */
+	static const char* const sky_modes[] = { "stars", "procedural" };
+	int temporal_mode, sky_mode;
 	if (!document || !scene_defaults || !out)
 		return XvtSettings_NodeError(document, "", "configuration document and output are required", error,
 									 capacity);
@@ -245,19 +236,14 @@ int XvtSettings_Parse(const AeronConfigFile* document, const XvtSceneSettings* s
 								capacity) ||
 		!XvtSettings_ReadChoice(document, "render.temporal_upscaling.mode", temporal_modes, 5, &temporal_mode,
 								error, capacity) ||
-		!XvtSettings_ReadChoice(document, "skybox.mode", sky_modes, 3, &candidate.render.sky.mode, error,
-								capacity) ||
+		!XvtSettings_ReadChoice(document, "skybox.mode", sky_modes, 2, &sky_mode, error, capacity) ||
 		!XvtSettings_ReadDisplay(document, &candidate.render.presentation, error, capacity))
 		return 0;
 	candidate.render.temporal_mode = (AeronTemporalMode)temporal_mode;
-	if (candidate.render.sky.mode == 2)
-		candidate.render.sky.mode = XVT_SKY_STARS;
 	if (candidate.render.msaa_samples != 1 && candidate.render.msaa_samples != 2 &&
 		candidate.render.msaa_samples != 4 && candidate.render.msaa_samples != 8)
 		return XvtSettings_NodeError(document, "render.msaa_samples", "expected 1, 2, 4 or 8", error,
 									 capacity);
-	if (candidate.render.sky.mode == XVT_SKY_CUBE && !candidate.render.sky.path[0])
-		return XvtSettings_NodeError(document, "skybox.path", "cube mode requires a path", error, capacity);
 	candidate.render.scene = *scene_defaults;
 	if (!AeronSceneSettings_Overlay(AeronConfigFile_GetNode(document, "render"), &candidate.render.scene.ssao,
 									&candidate.render.scene.shadows, &candidate.render.scene.tonemap,

@@ -8,15 +8,15 @@
 
 /* FS b1 — mirrors cbuffer PbrLightFS (scene_pbr_lighting.hlsli). */
 typedef struct PbrLightFS {
-	float light_intensity;
-	float global_spec_mul;
+	/* Probe-grid key-light shadowing; XvT has no probe sets. */
+	float key_shadow_in_probes;
+	float key_probe_shadow;
 	float debug_isolate_term;
-	float light_wrap;
-	float xvt_flat;
+	float key_shadow_facing;
+	float _reserved_xvt;
 	float ssao_intensity;
 	float ssao_power;
-	float ssao_rt_w;
-	float ssao_rt_h;
+	float _reserved_ssao_rt[2];
 	float ssao_direct;
 	float spec_geom_adapt;
 	float _pad_tuning;
@@ -33,13 +33,11 @@ typedef struct PbrLightFS {
 	 * the classic sums plain Lambert per light). */
 	float extra_dir[3][4];
 	float extra_col[3][4];
-	/* Point-light evaluation: min distance, spec weight, diffuse wrap, cap. */
-	float point_params[4];
-	/* Detailed diffuse environment intensity and world-to-local basis. */
-	float environment_params[4];
-	float environment_right[4];
-	float environment_up[4];
-	float environment_forward[4];
+	/* Least diffuse light from the environment (rgb, 1 / luminance); zero
+	 * means no minimum. */
+	float ambient_minimum[4];
+	/* The environment moved to the scene lighting block (b2). */
+	float _reserved_environment[4][4];
 } PbrLightFS;
 
 typedef char XvtPbrSizeCheck[sizeof(PbrLightFS) == 368 ? 1 : -1];
@@ -49,7 +47,8 @@ void XvtLighting_AddPoint(AeronScene3D* scene, const float position[3], const fl
 	const XvtPointLightSettings* p = &XvtRemasterConfig_Effective()->point_lights;
 	if (!p->enabled || !(intensity > 0) || !isfinite(intensity) || p->scale <= 0)
 		return;
-	/* XWA's 1% visibility window for the shared 0.5 / distance response. */
+	/* XWA's 1% visibility window for its 0.5 / distance response. Aeron now
+	 * shades inverse-square, so the range and scale want retuning. */
 	AeronSceneLight light = { .radius = fmaxf(minimum_range, intensity * 50) * p->range_scale };
 	memcpy(light.pos, position, sizeof light.pos);
 	for (int c = 0; c < 3; ++c)
@@ -148,9 +147,6 @@ static void Shadows(AeronScene3D* scene, const XvtRenderSnapshot* s) {
 										  .max_distance = p->max_distance,
 										  .split_lambda = p->split_lambda,
 										  .explicit_splits = p->explicit_splits,
-										  .filter_quality = p->filter_quality,
-										  .filter_radius = p->filter_radius,
-										  .contact_hardening = p->contact_hardening,
 										  .light_angular_radius_degrees = p->light_angular_radius_degrees,
 										  .max_filter_radius = p->max_filter_radius,
 										  .pcss_min_filter_radius = p->pcss_min_filter_radius,
@@ -184,10 +180,7 @@ int XvtLighting_Begin(AeronScene3D* scene, const XvtRenderSnapshot* s) {
 	const XvtPointLightSettings* p = &XvtRemasterConfig_Effective()->point_lights;
 	Shadows(scene, s);
 	if (!AeronScene_SetClusteredLights(
-			scene, &(AeronSceneClusteredLightDesc) { .enabled = p->enabled && p->clustered,
-													 .depth_slices = (uint32_t)p->cluster_depth_slices,
-													 .min_distance = p->min_distance,
-													 .contribution_cap = p->contrib_cap,
+			scene, &(AeronSceneClusteredLightDesc) { .depth_slices = (uint32_t)p->cluster_depth_slices,
 													 .debug_view = p->cluster_debug }))
 		return 0;
 	if (!p->enabled)
@@ -217,22 +210,11 @@ void XvtRemasterShip_SetEnvironment(AeronScene3D* scene, const XvtSnapLighting* 
 	const XvtLightingSettings* settings = &XvtRemasterConfig_Effective()->lighting;
 	PbrLightFS env = { 0 };
 	const XvtRenderSettings* config = XvtRemasterConfig_Effective();
-	int width, height;
-	AeronScene_RenderDims(scene, &width, &height);
 	env.ssao_intensity = config->scene.ssao.ssao_quality ? config->scene.ssao.ssao_intensity : 0;
 	env.ssao_power = config->scene.ssao.ssao_power;
 	env.ssao_direct = config->scene.ssao.ssao_direct;
-	env.ssao_rt_w = (float)width;
-	env.ssao_rt_h = (float)height;
-	env.point_params[0] = config->point_lights.min_distance;
-	env.point_params[1] = config->point_lights.spec_weight;
-	env.point_params[2] = config->point_lights.diffuse_wrap;
-	env.point_params[3] = config->point_lights.contrib_cap;
 	AeronScene_SetPbrDebugViews(scene, !settings->spec_geom_adapt);
-	AeronScene_SetPbrEnvironmentMap(scene, NULL, NULL);
-	env.light_intensity = settings->intensity;
-	env.global_spec_mul = settings->spec_mul;
-	env.light_wrap = settings->wrap;
+	AeronScene_SetPbrEnvironment(scene, NULL);
 	env.spec_geom_adapt = settings->spec_geom_adapt;
 	if (position)
 		memcpy(env.camera_pos_world, position, sizeof env.camera_pos_world);
@@ -259,9 +241,12 @@ void XvtRemasterShip_SetEnvironment(AeronScene3D* scene, const XvtSnapLighting* 
 	if (!eye_camera && XvtHyperspace_Lighting(scene, &hyper)) {
 		memcpy(env.directional_dir, hyper.direction, sizeof hyper.direction);
 		memcpy(env.sun_color, hyper.color, sizeof hyper.color);
-		env.environment_params[0] = config->hyperspace.mesh_ambient_strength;
-		env.environment_right[0] = env.environment_up[2] = env.environment_forward[1] = 1;
-		AeronScene_SetPbrEnvironmentMap(scene, hyper.texture, hyper.sampler);
+		/* Rows are the cube's right, up and forward axes in world space. */
+		AeronScene_SetPbrEnvironment(
+			scene, &(AeronScenePbrEnvironment) { .diffuse = hyper.texture,
+												 .sampler = hyper.sampler,
+												 .diffuse_strength = config->hyperspace.mesh_ambient_strength,
+												 .world_to_local = { 1, 0, 0, 0, 0, 1, 0, 1, 0 } });
 	}
 	AeronScene_SetFrameUniformData(scene, AERON_SHADER_STAGE_FRAGMENT, 1, &env, sizeof env);
 }

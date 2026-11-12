@@ -172,7 +172,7 @@ static int DrawSprite(const XvtSnapSprite* b, float scale) {
 		if ((unsigned)a->layout.ids[i] == b->frame) {
 			const AeronRuntimeAtlasPage* p = &a->pages[a->layout.pages[i]];
 			const AeronSpriteRect* r = &a->layout.frames[i];
-			float sx = r->w / a->layout.classic_w[i], sy = r->h / a->layout.classic_h[i];
+			float sx = r->w / a->layout.size[i * 2], sy = r->h / a->layout.size[i * 2 + 1];
 			AeronDrawList2DSprite d = { .texture = p->texture,
 										.src_u0 = (r->x + b->source.x * sx) / p->width,
 										.src_v0 = (r->y + b->source.y * sy) / p->height,

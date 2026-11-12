@@ -210,7 +210,7 @@ static void SampleMenu(ControllerInstance* state, const AeronControllerSnapshot*
 	uint8_t buttons = d->kind == AERON_CONTROLLER_KIND_GAMEPAD
 						  ? (uint8_t)(((d->gamepad_buttons >> AERON_GAMEPAD_BUTTON_SOUTH) & 1) |
 									  (((d->gamepad_buttons >> AERON_GAMEPAD_BUTTON_EAST) & 1) << 1))
-						  : (uint8_t)(d->raw_buttons & 3);
+						  : (uint8_t)(d->raw_buttons[0] & 3);
 	uint8_t hat = d->hat_count ? d->raw_hats[0] : 0;
 	if (d->kind == AERON_CONTROLLER_KIND_GAMEPAD)
 		hat = ((d->gamepad_buttons & (1u << AERON_GAMEPAD_BUTTON_DPAD_UP)) ? 1 : 0) |

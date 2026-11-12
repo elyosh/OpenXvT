@@ -26,8 +26,8 @@ int XvtEffects_Frame(const XvtRenderSnapshot* s, unsigned type, unsigned frame, 
 								  rect->y / page->height,
 								  (rect->x + rect->w) / page->width,
 								  (rect->y + rect->h) / page->height,
-								  a->layout.classic_w[i],
-								  a->layout.classic_h[i] };
+								  a->layout.size[i * 2],
+								  a->layout.size[i * 2 + 1] };
 		return 1;
 	}
 	return 0;
@@ -139,7 +139,7 @@ static uint16_t FlameCode(const XvtRenderSnapshot* s, const XvtSnapObject* o, in
 	if (frame >= 25)
 		return XVT_SNAP_INVALID_TEXTURE_FRAME;
 	for (unsigned i = 0; i < mesh->component_count; ++i)
-		if (!o->component_state[i] && mesh->mesh->mesh_rot[i].mesh_type == XVT_SNAP_MESH_FUSELAGE)
+		if (!o->component_state[i] && mesh->mesh->component_rot[i].mesh_type == XVT_SNAP_MESH_FUSELAGE)
 			if (--ordinal == 0)
 				return (uint16_t)s->fuselage_sequence[frame];
 	return XVT_SNAP_INVALID_TEXTURE_FRAME;
@@ -228,7 +228,7 @@ void XvtEffects_Submit(AeronScene3D* scene, const XvtRenderSnapshot* s, const Xv
 			continue;
 		int ordinal = 0;
 		for (unsigned m = 0; m < mesh->component_count; ++m)
-			if (!o->component_state[m] && mesh->mesh->mesh_rot[m].mesh_type == XVT_SNAP_MESH_FUSELAGE)
+			if (!o->component_state[m] && mesh->mesh->component_rot[m].mesh_type == XVT_SNAP_MESH_FUSELAGE)
 				++ordinal;
 		for (; ordinal > 0; --ordinal)
 			SubmitOne(scene, s, p, o, cam, pc, (uint16_t)s->fuselage_sequence[flame], ordinal, regenerate);

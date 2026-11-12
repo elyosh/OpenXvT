@@ -93,14 +93,14 @@ void XvtRemasterShip_BuildMeshTable(const XvtMeshAsset* asset, const XvtSnapObje
 										 (visual_angles ? visual_angles[asset->bridge_component]
 														: object->mesh_rotation[asset->bridge_component]) *
 											 byte_angle);
-	for (unsigned i = 0; i < AERON_MAX_MESH_SLOTS; ++i) {
+	for (unsigned i = 0; i < AERON_MAX_MESH_COMPONENTS; ++i) {
 		float local[3][4];
 		ship_mat3x4_identity(local);
 		int visible = i < asset->component_count && (component == UINT16_MAX || component == i);
 		if (object && object->has_craft && component == UINT16_MAX) {
 			if (object->component_state[i])
 				visible = 0;
-			const AeronMeshRot* r = &asset->mesh->mesh_rot[i];
+			const AeronMeshRot* r = &asset->mesh->component_rot[i];
 			/* The recovered transpose chain nets -rotation on model vertices. */
 			if (r->has_rotation && (visual_angles ? visual_angles[i] : object->mesh_rotation[i]))
 				ship_mat3x4_rotation_about_pivot(
@@ -121,7 +121,7 @@ float XvtRemasterShip_Radius(const XvtMeshAsset* asset, const AeronSceneMeshTabl
 		r2 += half * half;
 	}
 	float radius = 0, base_radius = sqrtf(r2);
-	for (unsigned i = 0; i < asset->component_count && i < AERON_MAX_MESH_SLOTS; ++i) {
+	for (unsigned i = 0; i < asset->component_count && i < AERON_MAX_MESH_COMPONENTS; ++i) {
 		if (!table->visibility_packed[i >> 2][i & 3])
 			continue;
 		float distance = 0;

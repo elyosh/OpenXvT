@@ -217,7 +217,6 @@ static void CrtProjectiles(AeronScene3D* scene, const XvtRenderSnapshot* s, cons
 			.mesh = mesh->mesh,
 			.variant = o->node_switch,
 			.zero_velocity = 1,
-			.no_local_lights = 1,
 			.base_color_emissive_strength =
 				XvtRemasterConfig_Effective()->models.opt_projectile_emissive_strength,
 			.cull_mode = AERON_CULL_NONE
@@ -248,7 +247,6 @@ static int RenderOne(AeronCommandBuffer* cmd, const XvtRenderSnapshot* s, const 
 	AeronSceneMeshInstance instance = { .mesh = mesh ? mesh->mesh : NULL,
 										.variant = p->node_switch,
 										.zero_velocity = 1,
-										.no_local_lights = 1,
 										.cull_mode = AERON_CULL_BACK,
 										.mesh_table = &g_table };
 	const XvtSnapObject* object = crt ? Target(s, p->object) : NULL;
@@ -318,7 +316,8 @@ static int RenderOne(AeronCommandBuffer* cmd, const XvtRenderSnapshot* s, const 
 		if (!pass)
 			return 0;
 		AeronScenePresentChain_Draw(g_chain, pass, Aeron_RenderTargetGetTexture(AeronScene_SceneRt(scene)),
-									g_sampler, NULL, 0, width, height, 1, (const float[4]) { 1, 1, 1, 1 }, 1);
+									g_sampler, NULL, 0, 1, NULL, width, height, 1,
+									(const float[4]) { 1, 1, 1, 1 }, 1);
 		Aeron_EndRenderPass(pass);
 	}
 	XvtPreviewOutput* out = &g_outputs[slot];

@@ -21,21 +21,17 @@ typedef struct XvtModelSettings {
 } XvtModelSettings;
 
 typedef struct XvtPointLightSettings {
-	int enabled, clustered, cluster_depth_slices, cluster_debug;
-	float scale, range_scale, min_distance, spec_weight, diffuse_wrap, contrib_cap;
+	int enabled, cluster_depth_slices, cluster_debug;
+	float scale, range_scale;
 } XvtPointLightSettings;
 
 typedef struct XvtLightingSettings {
-	float intensity, spec_mul, wrap;
 	int spec_geom_adapt;
 	float ambient[3];
 } XvtLightingSettings;
 
-enum { XVT_SKY_STARS, XVT_SKY_CUBE };
-
 typedef struct XvtSkySettings {
-	int enabled, mode;
-	char path[XVT_PATH_CAPACITY];
+	int enabled;
 	float exposure, star_brightness;
 } XvtSkySettings;
 
@@ -47,7 +43,7 @@ typedef struct XvtHyperspaceSettings {
 } XvtHyperspaceSettings;
 
 typedef struct XvtMotionBlurSettings {
-	int quality, camera_blur, pause_keep_blur, velocity_viz, fsr_direct_motion;
+	int quality, camera_blur, pause_keep_blur, velocity_viz;
 	float shutter;
 } XvtMotionBlurSettings;
 

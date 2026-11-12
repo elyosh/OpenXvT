@@ -94,7 +94,7 @@ const float* XvtComponentAnimation_Angles(const XvtRenderSnapshot* s, const XvtS
 		output[i] = o->mesh_rotation[i];
 		if (i >= asset->component_count || o->component_state[i] || !o->component_hp[i])
 			continue;
-		unsigned type = asset->mesh->mesh_rot[i].mesh_type;
+		unsigned type = asset->mesh->component_rot[i].mesh_type;
 		int foil = (type == 20 && (o->object_type == 1 || o->object_type == 4)) ||
 				   (type == 7 && o->object_type == 4);
 		int rotate =
