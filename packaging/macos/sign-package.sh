@@ -1,11 +1,10 @@
 #!/bin/bash
 
-# Re-signs, notarizes, and staples a previously built OpenXvT DMG on a
-# maintainer's Mac, so no signing material has to exist in CI. Takes the
-# ad-hoc-signed DMG produced by build-package.sh (locally or by GitHub
-# Actions), extracts the application, signs it with a Developer ID identity,
-# notarizes and staples both the application and the rebuilt DMG, and
-# optionally replaces the corresponding GitHub release asset.
+# Signs, notarizes and staples a DMG that build-package.sh already built with
+# an ad-hoc signature. The release workflow runs it in its signing job, and a
+# maintainer can run it on a Mac. It extracts the application, signs it with
+# a Developer ID identity, notarizes and staples the application and the
+# rebuilt DMG, and can replace the DMG on a GitHub release.
 #
 # Usage:
 #   sign-package.sh <input-dmg> [output-dmg]
@@ -15,9 +14,11 @@
 #
 # Required environment:
 #   XVT_MACOS_SIGN_IDENTITY   Developer ID Application identity
-#   XVT_MACOS_NOTARY_PROFILE  notarytool keychain profile, or the direct
-#                             XVT_MACOS_NOTARY_APPLE_ID/_TEAM_ID/_PASSWORD
-#                             credentials
+#   XVT_MACOS_NOTARY_PROFILE  notarytool keychain profile, or an App Store
+#                             Connect API key in XVT_MACOS_NOTARY_KEY (path
+#                             to the .p8 file), _KEY_ID and _ISSUER, or an
+#                             Apple ID in XVT_MACOS_NOTARY_APPLE_ID, _TEAM_ID
+#                             and _PASSWORD
 # Optional:
 #   XVT_MACOS_RELEASE_TAG     replace the DMG asset on this GitHub release
 #                             with `gh release upload --clobber`
@@ -39,6 +40,9 @@ notary_profile="${XVT_MACOS_NOTARY_PROFILE:-}"
 notary_apple_id="${XVT_MACOS_NOTARY_APPLE_ID:-}"
 notary_team_id="${XVT_MACOS_NOTARY_TEAM_ID:-}"
 notary_password="${XVT_MACOS_NOTARY_PASSWORD:-}"
+notary_key="${XVT_MACOS_NOTARY_KEY:-}"
+notary_key_id="${XVT_MACOS_NOTARY_KEY_ID:-}"
+notary_issuer="${XVT_MACOS_NOTARY_ISSUER:-}"
 release_tag="${XVT_MACOS_RELEASE_TAG:-}"
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/openxvt-sign.XXXXXX")"
@@ -97,8 +101,8 @@ main() {
     fi
     if [[ "${notarize_enabled}" -ne 1 ]]; then
         echo "Notarization credentials are required: set" >&2
-        echo "XVT_MACOS_NOTARY_PROFILE or XVT_MACOS_NOTARY_APPLE_ID," >&2
-        echo "XVT_MACOS_NOTARY_TEAM_ID, and XVT_MACOS_NOTARY_PASSWORD" >&2
+        echo "XVT_MACOS_NOTARY_PROFILE, the XVT_MACOS_NOTARY_KEY variables," >&2
+        echo "or the XVT_MACOS_NOTARY_APPLE_ID variables" >&2
         exit 1
     fi
     if [[ -n "${release_tag}" ]]; then

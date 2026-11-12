@@ -2,8 +2,9 @@
 # build-package.sh and sign-package.sh after they define the globals used
 # here: application, artifact_dir, dmg, dmg_extras, dmg_volume_name,
 # sign_identity, notary_profile, notary_apple_id, notary_team_id,
-# notary_password, work_root, and optionally dsym_bundle (a debug-symbol
-# bundle packaged beside the application in the DMG).
+# notary_password, notary_key, notary_key_id, notary_issuer, work_root, and
+# optionally dsym_bundle (a debug-symbol bundle packaged beside the
+# application in the DMG).
 
 notary_arguments=()
 notarize_enabled=0
@@ -16,12 +17,26 @@ require_command() {
     fi
 }
 
-# Notarization uses either a stored keychain profile or direct credentials
-# passed through the environment (for non-interactive use). Resolved before
-# any build work so a misconfiguration fails fast.
+# Notarization uses a stored keychain profile, an App Store Connect API key,
+# or an Apple ID with an app-specific password. Checked before any build work
+# so that a configuration error fails early.
 resolve_notary_arguments() {
     if [[ -n "${notary_profile}" ]]; then
         notary_arguments=(--keychain-profile "${notary_profile}")
+        notarize_enabled=1
+    elif [[ -n "${notary_key}${notary_key_id}${notary_issuer}" ]]; then
+        if [[ -z "${notary_key}" || -z "${notary_key_id}" ||
+                -z "${notary_issuer}" ]]; then
+            echo "XVT_MACOS_NOTARY_KEY, XVT_MACOS_NOTARY_KEY_ID, and" >&2
+            echo "XVT_MACOS_NOTARY_ISSUER must be provided together" >&2
+            exit 1
+        fi
+        if [[ ! -f "${notary_key}" ]]; then
+            echo "Notary API key not found: ${notary_key}" >&2
+            exit 1
+        fi
+        notary_arguments=(--key "${notary_key}" --key-id "${notary_key_id}"
+            --issuer "${notary_issuer}")
         notarize_enabled=1
     elif [[ -n "${notary_apple_id}${notary_team_id}${notary_password}" ]]; then
         if [[ -z "${notary_apple_id}" || -z "${notary_team_id}" ||

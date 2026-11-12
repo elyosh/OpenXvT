@@ -45,16 +45,52 @@ Bundled dylibs are relocated into `Contents/Frameworks`.
 ### Signing and notarization
 
 Set `XVT_MACOS_SIGN_IDENTITY` to a Developer ID identity and
-`XVT_MACOS_NOTARY_PROFILE` to a notarytool keychain profile.
-Alternatively, supply all three direct-credential variables:
-`XVT_MACOS_NOTARY_APPLE_ID`, `XVT_MACOS_NOTARY_TEAM_ID` and
-`XVT_MACOS_NOTARY_PASSWORD`.
+`XVT_MACOS_NOTARY_PROFILE` to a notarytool keychain profile. Instead of the
+profile, you can set either an App Store Connect API key
+(`XVT_MACOS_NOTARY_KEY`, the path to the `.p8` file, `XVT_MACOS_NOTARY_KEY_ID`
+and `XVT_MACOS_NOTARY_ISSUER`) or an Apple ID (`XVT_MACOS_NOTARY_APPLE_ID`,
+`XVT_MACOS_NOTARY_TEAM_ID` and `XVT_MACOS_NOTARY_PASSWORD`).
 
 ```sh
 ./packaging/macos/sign-package.sh input.dmg output.dmg
 ```
 
-`XVT_MACOS_RELEASE_TAG` optionally replaces the signed DMG on a GitHub release.
+`XVT_MACOS_RELEASE_TAG` also replaces the DMG on that GitHub release.
+
+### Signing in the release workflow
+
+`release.yml` builds the DMGs with an ad-hoc signature, then its `sign-macos`
+job runs `sign-package.sh` on them. Only that job can read the signing
+secrets, and it runs only after you approve it. It doesn't install Homebrew
+packages or restore caches, and its actions are pinned to commits, so no
+third-party code runs while the private key is on the runner.
+
+One-time setup:
+
+1. Create a Developer ID Application certificate for CI, separate from the
+   one you use locally, and export it from Keychain Access as a `.p12` file
+   with its private key. Revoking a Developer ID certificate can stop
+   released builds signed with it from opening.
+2. In App Store Connect, under Users and Access > Integrations > App Store
+   Connect API, create a team key with the Developer role and download its
+   `.p8` file.
+3. In the repository settings, create the `macos-signing` environment with
+   yourself as required reviewer, the deployment tag rule `v*`, and these
+   environment secrets. Don't add them as repository secrets, which every job
+   can read.
+
+   | Secret | Value |
+   |---|---|
+   | `MACOS_CERTIFICATE_P12` | `base64 -i certificate.p12` |
+   | `MACOS_CERTIFICATE_PASSWORD` | the `.p12` password |
+   | `MACOS_NOTARY_KEY_P8` | the contents of the `.p8` file |
+   | `MACOS_NOTARY_KEY_ID` | the API key ID |
+   | `MACOS_NOTARY_ISSUER` | the issuer ID |
+
+4. Add a tag ruleset for `v*` that only you can bypass.
+
+When you push a `v*` tag, the run waits at "Sign macOS packages" until you
+approve it.
 
 ## Linux and Windows
 
@@ -125,4 +161,5 @@ Configuration and usage: [probe instructions](../aeron/tools/netprobe/README.md)
 Package checks cover game configuration, selected shaders, required FFmpeg
 codecs, Linux runtime resolution and ABI versions, Windows executable subsystem
 and Debug symbols, and macOS plist syntax, dylib paths, signatures and dSYM UUIDs.
-CI does not run gameplay tests or notarization.
+CI does not run gameplay tests. Only `release.yml` notarizes, for the macOS
+DMGs.
