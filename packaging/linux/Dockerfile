@@ -44,10 +44,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ARG SDL_VERSION=3.4.18
-ARG ZSTD_VERSION=1.5.7
-ARG FFMPEG_VERSION=8.0.1
-ARG SHADERCROSS_COMMIT=6b06e55c7c5d7e7a09a8a14f76e866dcfad5ab99
+# The versions and patches of aeron's dependencies come from
+# aeron/packaging/dependencies; set these to build another version.
+ARG SDL_VERSION=
+ARG ZSTD_VERSION=
+ARG FFMPEG_VERSION=
+ARG SHADERCROSS_COMMIT=
 
 # The dependencies build as independent stages so that a version bump only
 # rebuilds the affected dependency and so that cold builds run concurrently.
@@ -59,8 +61,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends libcurl4-openss
 
 FROM build-base AS sdl-build
 
-RUN git clone --branch "release-${SDL_VERSION}" --depth 1 \
+COPY aeron/packaging/dependencies/apply-patches.sh /tmp/aeron/apply-patches.sh
+COPY aeron/packaging/dependencies/sdl /tmp/aeron/sdl
+
+RUN git clone --branch "release-${SDL_VERSION:-$(cat /tmp/aeron/sdl/version)}" --depth 1 \
         https://github.com/libsdl-org/SDL.git /deps/SDL \
+    && /tmp/aeron/apply-patches.sh /tmp/aeron/sdl /deps/SDL \
     && cmake -S /deps/SDL -B /build/sdl -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/opt/xvt-linux \
@@ -73,7 +79,9 @@ RUN git clone --branch "release-${SDL_VERSION}" --depth 1 \
 
 FROM build-base AS zstd-build
 
-RUN git clone --branch "v${ZSTD_VERSION}" --depth 1 \
+COPY aeron/packaging/dependencies/zstd /tmp/aeron/zstd
+
+RUN git clone --branch "v${ZSTD_VERSION:-$(cat /tmp/aeron/zstd/version)}" --depth 1 \
         https://github.com/facebook/zstd.git /deps/zstd \
     && cmake -S /deps/zstd/build/cmake -B /build/zstd -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
@@ -87,7 +95,9 @@ RUN git clone --branch "v${ZSTD_VERSION}" --depth 1 \
 
 FROM build-base AS ffmpeg-build
 
-RUN git clone --branch "n${FFMPEG_VERSION}" --depth 1 \
+COPY aeron/packaging/dependencies/ffmpeg /tmp/aeron/ffmpeg
+
+RUN git clone --branch "n${FFMPEG_VERSION:-$(cat /tmp/aeron/ffmpeg/version)}" --depth 1 \
         https://github.com/FFmpeg/FFmpeg.git /deps/FFmpeg \
     && cd /deps/FFmpeg \
     && ./configure \
@@ -116,7 +126,8 @@ RUN git clone --branch "n${FFMPEG_VERSION}" --depth 1 \
 
 FROM build-base AS shader-tools
 
-COPY packaging/common/shadercross-fsr3.patch /tmp/shadercross-fsr3.patch
+COPY aeron/packaging/dependencies/apply-patches.sh /tmp/aeron/apply-patches.sh
+COPY aeron/packaging/dependencies/shadercross /tmp/aeron/shadercross
 
 # DXC 1.9 requires glibc 2.38; keep the Debian 12-compatible 1.8 release.
 ARG DXC_VERSION=1.8.2502
@@ -131,8 +142,8 @@ ADD --checksum=sha256:${DXC_LINUX_X64_SHA256} \
 COPY --from=sdl-build /opt/xvt-linux /opt/xvt-linux
 
 RUN git clone https://github.com/libsdl-org/SDL_shadercross.git /deps/SDL_shadercross \
-    && git -C /deps/SDL_shadercross checkout "${SHADERCROSS_COMMIT}" \
-    && git -C /deps/SDL_shadercross apply /tmp/shadercross-fsr3.patch \
+    && git -C /deps/SDL_shadercross checkout "${SHADERCROSS_COMMIT:-$(cat /tmp/aeron/shadercross/version)}" \
+    && /tmp/aeron/apply-patches.sh /tmp/aeron/shadercross /deps/SDL_shadercross \
     && git -C /deps/SDL_shadercross submodule update --init --depth 1 \
         external/SPIRV-Cross \
     && mkdir -p \
