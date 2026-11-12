@@ -9,6 +9,7 @@
 #include "xvt_runtime/runtime/port.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum { ACTION_QUEUE_CAPACITY = 256 };
@@ -25,8 +26,9 @@ typedef struct ControllerInstance {
 static struct {
 	XvtControllerOptions options, pending;
 	ControllerInstance instances[AERON_CONTROLLER_MAX];
-	uint32_t analog[XVT_CONTROLLER_MODEL_CAP];
 	bool pending_options, suspended, present, throttle_valid;
+	/* The model whose device gives the throttle this frame. */
+	size_t throttle_model;
 	int axes[3], menu_axes[3];
 	uint16_t holds[XVT_INPUT_ACTION_COUNT], throttle;
 	uint8_t menu_buttons, menu_hat;
@@ -35,6 +37,10 @@ static struct {
 	unsigned read, write;
 	uint64_t frame;
 } g_controller;
+
+/* Counts installs of different options. Outside g_controller, so Init and
+ * Shutdown never take it back to a value already seen. */
+static uint64_t g_optionsGeneration;
 
 static void XvtControllerMapping_QueueKey(uint16_t key) {
 	unsigned next = (g_controller.write + 1) % ACTION_QUEUE_CAPACITY;
@@ -85,22 +91,10 @@ static void XvtControllerMapping_Dispatch(XvtInputAction action, bool pressed) {
 	XvtControllerMapping_DispatchAction(action, pressed);
 }
 
-const AeronControllerSnapshot* XvtControllerMapping_Resolve(const XvtControllerModel* model,
-															const AeronInputSnapshot* input,
-															uint32_t preferred) {
-	const AeronControllerSnapshot* best = NULL;
-	if (!input)
-		return NULL;
-	for (int i = 0; i < AERON_CONTROLLER_MAX; ++i) {
-		const AeronControllerSnapshot* d = &input->controllers[i];
-		if (!d->connected || strcmp(model->guid, d->guid) || d->kind != model->kind)
-			continue;
-		if (d->instance_id == preferred)
-			return d;
-		if (!best || d->instance_id < best->instance_id)
-			best = d;
-	}
-	return best;
+/* The model of a connected device, or -1. */
+static int XvtControllerMapping_DeviceModel(const AeronControllerSnapshot* device) {
+	int model = XvtControllerOptions_FindModel(&g_controller.options, device->guid);
+	return model >= 0 && g_controller.options.models[model].kind == device->kind ? model : -1;
 }
 
 static void ReleaseInstance(ControllerInstance* state) {
@@ -124,7 +118,6 @@ static void XvtControllerMapping_Install(const XvtControllerOptions* options) {
 	}
 	if (XvtControllerOptions_Equals(options, &g_controller.options))
 		return;
-	uint32_t analog[XVT_CONTROLLER_MODEL_CAP] = { 0 };
 	for (int i = 0; i < AERON_CONTROLLER_MAX; ++i) {
 		ControllerInstance* state = &g_controller.instances[i];
 		if (!state->id)
@@ -134,11 +127,6 @@ static void XvtControllerMapping_Install(const XvtControllerOptions* options) {
 		if (next < 0 || old->kind != options->models[next].kind ||
 			!XvtControllerOptions_ProfileEqual(&old->profile, &options->models[next].profile))
 			ReleaseInstance(state);
-	}
-	for (size_t i = 0; i < options->count; ++i) {
-		int old = XvtControllerOptions_FindModel(&g_controller.options, options->models[i].guid);
-		if (old >= 0 && options->models[i].kind == g_controller.options.models[old].kind)
-			analog[i] = g_controller.analog[old];
 	}
 	for (int i = 0; i < AERON_CONTROLLER_MAX; ++i) {
 		ControllerInstance* state = &g_controller.instances[i];
@@ -159,7 +147,7 @@ static void XvtControllerMapping_Install(const XvtControllerOptions* options) {
 			++g_controller.generation;
 	}
 	g_controller.options = *options;
-	memcpy(g_controller.analog, analog, sizeof analog);
+	++g_optionsGeneration;
 }
 
 void XvtControllerMapping_Init(const XvtControllerOptions* options) {
@@ -186,6 +174,8 @@ void XvtControllerMapping_ApplyPending(void) {
 }
 
 const XvtControllerOptions* XvtControllerMapping_Options(void) { return &g_controller.options; }
+
+uint64_t XvtControllerMapping_OptionsGeneration(void) { return g_optionsGeneration; }
 
 void XvtControllerMapping_Suspend(void) {
 	if (g_controller.suspended)
@@ -294,6 +284,10 @@ uint16_t XvtControllerMapping_ThrottlePosition(int16_t raw, AeronControllerKind 
 	return (uint16_t)(((position - end_tolerance) * UINT16_MAX + range / 2) / range);
 }
 
+/* Reads the axes the device's model binds. Several connected devices may bind
+ * the same axis: the one pushed the furthest drives yaw, pitch and roll, and
+ * the device of the first model in the list drives the throttle, a lever
+ * position. */
 static void SampleAnalog(size_t index, const AeronControllerSnapshot* device) {
 	const XvtControllerModel* model = &g_controller.options.models[index];
 	for (int axis = 0; axis < XVT_INPUT_AXIS_COUNT; ++axis) {
@@ -302,6 +296,9 @@ static void SampleAnalog(size_t index, const AeronControllerSnapshot* device) {
 			continue;
 		int16_t raw = Aeron_ControllerAxisValue(device, binding.source);
 		if (axis == XVT_INPUT_AXIS_THROTTLE) {
+			if (g_controller.throttle_valid && index >= g_controller.throttle_model)
+				continue;
+			g_controller.throttle_model = index;
 			g_controller.throttle =
 				XvtControllerMapping_ThrottlePosition(raw, model->kind, binding.source, binding.invert);
 			g_controller.throttle_valid = true;
@@ -312,6 +309,8 @@ static void SampleAnalog(size_t index, const AeronControllerSnapshot* device) {
 		} else {
 			float normalized = (float)raw / 32768;
 			int value = fabsf(normalized) > binding.deadzone ? (int)(normalized * 127) : 0;
+			if (abs(value) < abs(g_controller.axes[axis]))
+				continue;
 			g_controller.menu_axes[axis] = binding.invert ? -value : value;
 			g_controller.axes[axis] =
 				XvtControllerOptions_EffectiveAxisInvert(model->kind, (XvtInputAxis)axis, binding.invert)
@@ -348,54 +347,32 @@ void XvtControllerMapping_Update(const AeronInputSnapshot* input) {
 			ReleaseInstance(state);
 	}
 
-	for (size_t model = 0; model < g_controller.options.count; ++model) {
-		const AeronControllerSnapshot* analog = XvtControllerMapping_Resolve(
-			&g_controller.options.models[model], input, g_controller.analog[model]);
-		g_controller.analog[model] = analog ? analog->instance_id : 0;
-		if (analog) {
-			g_controller.present = true;
-			if (!g_controller.suspended)
-				SampleAnalog(model, analog);
-		}
+	/* Each connected device of a known model is read: its sticks merge with
+	 * the other devices' and its buttons are its own. */
+	for (int slot = 0; slot < AERON_CONTROLLER_MAX; ++slot) {
+		const AeronControllerSnapshot* d = &input->controllers[slot];
+		const int model = d->connected ? XvtControllerMapping_DeviceModel(d) : -1;
+		if (model < 0)
+			continue;
+		g_controller.present = true;
 		if (g_controller.suspended)
 			continue;
-		uint32_t previous = 0;
-		for (int n = 0; n < AERON_CONTROLLER_MAX; ++n) {
-			const AeronControllerSnapshot* d = NULL;
-			for (int j = 0; j < AERON_CONTROLLER_MAX; ++j) {
-				const AeronControllerSnapshot* candidate = &input->controllers[j];
-				if (candidate->connected && candidate->instance_id > previous &&
-					!strcmp(candidate->guid, g_controller.options.models[model].guid) &&
-					candidate->kind == g_controller.options.models[model].kind &&
-					(!d || candidate->instance_id < d->instance_id))
-					d = candidate;
+		SampleAnalog((size_t)model, d);
+		ControllerInstance* state = NULL;
+		for (int j = 0; j < AERON_CONTROLLER_MAX && !state; ++j)
+			if (g_controller.instances[j].id == d->instance_id)
+				state = &g_controller.instances[j];
+		for (int j = 0; j < AERON_CONTROLLER_MAX && !state; ++j)
+			if (!g_controller.instances[j].id) {
+				state = &g_controller.instances[j];
+				state->id = d->instance_id;
+				state->model = model;
 			}
-			if (!d)
-				break;
-			previous = d->instance_id;
-			ControllerInstance* state = NULL;
-			for (int j = 0; j < AERON_CONTROLLER_MAX; ++j)
-				if (g_controller.instances[j].id == d->instance_id)
-					state = &g_controller.instances[j];
-			if (!state)
-				for (int j = 0; j < AERON_CONTROLLER_MAX; ++j)
-					if (!g_controller.instances[j].id) {
-						state = &g_controller.instances[j];
-						state->id = d->instance_id;
-						state->model = (int)model;
-						break;
-					}
-			if (state)
-				SampleDigital(state, d);
-		}
+		if (state)
+			SampleDigital(state, d);
 	}
 	if (!g_controller.throttle_valid)
 		g_controller.throttle_instance = 0;
-}
-
-uint32_t XvtControllerMapping_AnalogInstance(const char* guid) {
-	int i = XvtControllerOptions_FindModel(&g_controller.options, guid);
-	return i < 0 ? 0 : g_controller.analog[i];
 }
 
 bool XvtControllerMapping_ThrottleSample(uint16_t* position, uint32_t* generation) {

@@ -23,20 +23,54 @@ static uint64_t XvtApplication_PresentationIntervalUs(void) {
 	return (uint64_t)(1000000.0 / rate + 0.5);
 }
 
+/* Each host frame, the connected models move to the front of the mapping's
+ * list, which keeps it in the order of last use, and new gamepad models get
+ * the shipped gamepad defaults. Only the configured models are saved, when
+ * they change. While the settings menu is open, it adds the new gamepads in
+ * its draft. */
+typedef struct XvtDiscoveryKey {
+	uint64_t options_generation, config_generation;
+	uint32_t instance[AERON_CONTROLLER_MAX];
+	AeronControllerKind kind[AERON_CONTROLLER_MAX];
+} XvtDiscoveryKey;
+
+/* What discovery reads: the connected controllers, the mapping's options and
+ * the configuration. Discovery gives the same result while it is unchanged. */
+static void XvtApplication_DiscoveryKey(const AeronInputSnapshot* input, XvtDiscoveryKey* key) {
+	memset(key, 0, sizeof *key);
+	key->options_generation = XvtControllerMapping_OptionsGeneration();
+	key->config_generation = XvtConfig_Generation();
+	for (int slot = 0; input && slot < AERON_CONTROLLER_MAX; ++slot)
+		if (input->controllers[slot].connected) {
+			key->instance[slot] = input->controllers[slot].instance_id;
+			key->kind[slot] = input->controllers[slot].kind;
+		}
+}
+
 static void XvtApplication_DiscoverControllers(const AeronInputSnapshot* input) {
 	static char previous_error[512];
+	static XvtControllerOptions candidate, configured;
+	static XvtDiscoveryKey previous_key;
+	static bool discovered;
+	XvtDiscoveryKey key;
 	const XvtSettings* settings = XvtConfig_Settings();
 	if (!settings || XvtSettingsMenu_Open())
 		return;
-	XvtControllerOptions candidate = settings->controller;
+	XvtApplication_DiscoveryKey(input, &key);
+	if (discovered && !memcmp(&key, &previous_key, sizeof key))
+		return;
+	candidate = *XvtControllerMapping_Options();
+	XvtControllerOptions_MoveConnectedFirst(&candidate, input);
 	char error[512] = { 0 };
 	bool ok = XvtControllerOptions_InitializeGamepads(
 		&candidate, &XvtConfig_DefaultSettings()->gamepad_defaults, input, error, sizeof error);
-	if (!XvtControllerOptions_Equals(&candidate, &settings->controller)) {
+	if (!XvtControllerOptions_Equals(&candidate, XvtControllerMapping_Options())) {
+		XvtControllerMapping_SetOptions(&candidate);
+		configured = candidate;
+		XvtControllerOptions_KeepConfigured(&configured);
 		char save_error[512];
-		if (XvtConfig_SetController(&candidate, save_error, sizeof save_error))
-			XvtControllerMapping_SetOptions(&XvtConfig_Settings()->controller);
-		else {
+		if (!XvtControllerOptions_Equals(&configured, &settings->controller) &&
+			!XvtConfig_SetController(&candidate, save_error, sizeof save_error)) {
 			snprintf(error, sizeof error, "%s", save_error);
 			ok = false;
 		}
@@ -44,6 +78,10 @@ static void XvtApplication_DiscoverControllers(const AeronInputSnapshot* input) 
 	if (!ok && strcmp(previous_error, error))
 		Aeron_LogWarn("xvt.input", "%s", error);
 	snprintf(previous_error, sizeof previous_error, "%s", ok ? "" : error);
+	/* An install or a save changes the key, so the next frame runs once
+	 * more and finds nothing to do. */
+	previous_key = key;
+	discovered = true;
 }
 
 static int XvtApplication_FrameLoop(void) {

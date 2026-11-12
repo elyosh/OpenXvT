@@ -1,4 +1,6 @@
 #include "xvt_runtime/input/controller_options.h"
+
+#include "aeron/log.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -36,7 +38,7 @@ bool XvtControllerOptions_Equals(const XvtControllerOptions* left, const XvtCont
 	for (size_t i = 0; i < left->count; ++i) {
 		const XvtControllerModel *a = &left->models[i], *b = &right->models[i];
 		if (strcmp(a->guid, b->guid) || strcmp(a->name, b->name) || a->kind != b->kind ||
-			!XvtControllerOptions_ProfileEqual(&a->profile, &b->profile))
+			a->configured != b->configured || !XvtControllerOptions_ProfileEqual(&a->profile, &b->profile))
 			return false;
 	}
 	return true;
@@ -153,27 +155,55 @@ bool XvtControllerOptions_Validate(const XvtControllerOptions* options, char* er
 			return XvtControllerOptions_ValidationError(error, capacity, "invalid controller model identity");
 		if (!XvtControllerOptions_ValidateProfile(&m->profile, m->kind, error, capacity))
 			return false;
-		for (size_t j = 0; j < i; ++j) {
+		for (size_t j = 0; j < i; ++j)
 			if (!strcmp(m->guid, options->models[j].guid))
 				return XvtControllerOptions_ValidationError(error, capacity,
 															"duplicate controller model GUID");
-			for (int axis = 0; axis < XVT_INPUT_AXIS_COUNT; ++axis)
-				if (m->profile.mapping.axes[axis].source >= 0 &&
-					options->models[j].profile.mapping.axes[axis].source >= 0)
-					return XvtControllerOptions_ValidationError(error, capacity,
-																"logical axis has multiple model owners");
-		}
 	}
 	return true;
 }
 
+static bool XvtControllerOptions_ModelConnected(const XvtControllerModel* model,
+												const AeronInputSnapshot* input) {
+	for (int slot = 0; input && slot < AERON_CONTROLLER_MAX; ++slot) {
+		const AeronControllerSnapshot* d = &input->controllers[slot];
+		if (d->connected && d->kind == model->kind && !strcmp(d->guid, model->guid))
+			return true;
+	}
+	return false;
+}
+
+static void XvtControllerOptions_RemoveModel(XvtControllerOptions* options, size_t index) {
+	memmove(&options->models[index], &options->models[index + 1],
+			(options->count - index - 1) * sizeof options->models[0]);
+	--options->count;
+}
+
+/* Frees one entry. A model that isn't configured goes first, since nothing
+ * is lost. Then the configured model that was connected the longest ago. */
+static bool XvtControllerOptions_MakeRoom(XvtControllerOptions* options, const AeronInputSnapshot* input) {
+	for (int pass = 0; pass < 2; ++pass) {
+		for (size_t i = options->count; i-- > 0;) {
+			const XvtControllerModel* m = &options->models[i];
+			if ((pass == 0 && m->configured) || XvtControllerOptions_ModelConnected(m, input))
+				continue;
+			if (m->configured)
+				Aeron_LogInfo("xvt.input",
+							  "forgetting the settings of '%s' to make room for a new controller", m->name);
+			XvtControllerOptions_RemoveModel(options, i);
+			return true;
+		}
+	}
+	return false;
+}
+
 bool XvtControllerOptions_AddModel(XvtControllerOptions* options, const AeronControllerSnapshot* device,
-								   char* error, size_t capacity) {
+								   const AeronInputSnapshot* input, char* error, size_t capacity) {
 	if (!device || !GuidValid(device->guid))
 		return XvtControllerOptions_ValidationError(error, capacity, "controller has no usable model GUID");
 	if (XvtControllerOptions_FindModel(options, device->guid) >= 0)
 		return true;
-	if (options->count >= XVT_CONTROLLER_MODEL_CAP)
+	if (options->count >= XVT_CONTROLLER_MODEL_CAP && !XvtControllerOptions_MakeRoom(options, input))
 		return XvtControllerOptions_ValidationError(error, capacity, "controller model capacity exceeded");
 	XvtControllerModel* m = &options->models[options->count++];
 	memset(m, 0, sizeof *m);
@@ -182,6 +212,24 @@ bool XvtControllerOptions_AddModel(XvtControllerOptions* options, const AeronCon
 	m->kind = device->kind;
 	XvtControllerOptions_ClearProfile(&m->profile, device->kind);
 	return true;
+}
+
+void XvtControllerOptions_MoveConnectedFirst(XvtControllerOptions* options, const AeronInputSnapshot* input) {
+	static XvtControllerOptions sorted;
+	size_t count = 0;
+	if (!input)
+		return;
+	for (int pass = 0; pass < 2; ++pass)
+		for (size_t i = 0; i < options->count; ++i)
+			if (XvtControllerOptions_ModelConnected(&options->models[i], input) == (pass == 0))
+				sorted.models[count++] = options->models[i];
+	memcpy(options->models, sorted.models, count * sizeof options->models[0]);
+}
+
+void XvtControllerOptions_KeepConfigured(XvtControllerOptions* options) {
+	for (size_t i = options->count; i-- > 0;)
+		if (!options->models[i].configured)
+			XvtControllerOptions_RemoveModel(options, i);
 }
 
 bool XvtControllerOptions_InitializeGamepads(XvtControllerOptions* options,
@@ -205,14 +253,10 @@ bool XvtControllerOptions_InitializeGamepads(XvtControllerOptions* options,
 	for (int i = 0; i < count; ++i) {
 		if (XvtControllerOptions_FindModel(options, sorted[i]->guid) >= 0)
 			continue;
-		if (!XvtControllerOptions_AddModel(options, sorted[i], error, capacity))
+		if (!XvtControllerOptions_AddModel(options, sorted[i], input, error, capacity))
 			return false;
-		XvtControllerProfile* p = &options->models[options->count - 1].profile;
-		*p = *defaults;
-		for (size_t j = 0; j + 1 < options->count; ++j)
-			for (int axis = 0; axis < XVT_INPUT_AXIS_COUNT; ++axis)
-				if (options->models[j].profile.mapping.axes[axis].source >= 0)
-					p->mapping.axes[axis].source = -1;
+		/* Other models may bind the same axes; the mapping merges them. */
+		options->models[options->count - 1].profile = *defaults;
 	}
 	return true;
 }

@@ -8,14 +8,12 @@ void XvtControllerMapping_Update(const AeronInputSnapshot* input);
 void XvtControllerMapping_Suspend(void);
 void XvtControllerMapping_Shutdown(void);
 const XvtControllerOptions* XvtControllerMapping_Options(void);
+/* Changes whenever the mapping installs different options. */
+uint64_t XvtControllerMapping_OptionsGeneration(void);
 int XvtControllerMapping_Axis(XvtInputAxis axis);
 uint16_t XvtControllerMapping_Modifiers(void);
 uint16_t XvtControllerMapping_ReadKey(void);
 void XvtControllerMapping_ReleaseCommands(void);
-const AeronControllerSnapshot* XvtControllerMapping_Resolve(const XvtControllerModel* model,
-															const AeronInputSnapshot* input,
-															uint32_t preferred);
-uint32_t XvtControllerMapping_AnalogInstance(const char* guid);
 uint16_t XvtControllerMapping_ThrottlePosition(int16_t raw, AeronControllerKind kind, int source,
 											   bool invert);
 bool XvtControllerMapping_ThrottleSample(uint16_t* position, uint32_t* generation);

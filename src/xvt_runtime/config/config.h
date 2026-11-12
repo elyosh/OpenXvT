@@ -21,6 +21,7 @@ uint64_t XvtConfig_Generation(void);
 int XvtConfig_CanReplace(void);
 /* Copies and validates overrides before optional atomic USER/config.yaml save. */
 int XvtConfig_UpdateUser(const AeronConfigFile* candidate, int save, char* error, size_t capacity);
+/* Saves the configured controller models of `options`, in their order. */
 bool XvtConfig_SetController(const XvtControllerOptions* options, char* error, size_t capacity);
 bool XvtConfig_SetKeyboard(const XvtKeyboardBindings* bindings, char* error, size_t capacity);
 bool XvtConfig_RestoreKeyboard(char* error, size_t capacity);

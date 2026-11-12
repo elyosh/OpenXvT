@@ -38,15 +38,23 @@ typedef struct XvtControllerProfile {
 	size_t binding_count;
 } XvtControllerProfile;
 
-enum { XVT_CONTROLLER_MODEL_CAP = 8 };
+enum { XVT_CONTROLLER_MODEL_CAP = 16 };
 
 typedef struct XvtControllerModel {
 	char guid[33];
 	char name[AERON_CONTROLLER_NAME_CAPACITY];
 	AeronControllerKind kind; /* Saved Aeron kind; must match the connected snapshot. */
+	/* Set when the player changed this model, or when it was loaded from
+	 * the configuration. Only these models are saved. The others hold the
+	 * defaults, which discovery gives them again at the next start. */
+	bool configured;
 	XvtControllerProfile profile;
 } XvtControllerModel;
 
+/* The models are kept in the order they were last connected, most recent
+ * first. When the list is full, AddModel() drops the last one that isn't
+ * connected. Several models may bind the same flight axis
+ * (controller_mapping.c merges the connected ones). */
 typedef struct XvtControllerOptions {
 	XvtControllerModel models[XVT_CONTROLLER_MODEL_CAP];
 	size_t count;
@@ -61,7 +69,11 @@ void XvtControllerOptions_ClearProfile(XvtControllerProfile* profile, AeronContr
 int XvtControllerOptions_FindModel(const XvtControllerOptions* options, const char* guid);
 bool XvtControllerOptions_Validate(const XvtControllerOptions* options, char* error, size_t capacity);
 bool XvtControllerOptions_AddModel(XvtControllerOptions* options, const AeronControllerSnapshot* device,
-								   char* error, size_t capacity);
+								   const AeronInputSnapshot* input, char* error, size_t capacity);
+/* Moves the connected models to the front, keeping the order of the others. */
+void XvtControllerOptions_MoveConnectedFirst(XvtControllerOptions* options, const AeronInputSnapshot* input);
+/* Removes the models that aren't configured. */
+void XvtControllerOptions_KeepConfigured(XvtControllerOptions* options);
 bool XvtControllerOptions_InitializeGamepads(XvtControllerOptions* options,
 											 const XvtControllerProfile* defaults,
 											 const AeronInputSnapshot* input, char* error, size_t capacity);

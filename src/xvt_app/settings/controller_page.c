@@ -37,16 +37,21 @@ static const AeronControllerSnapshot* XvtControllerPage_SelectedController(XvtCo
 	return NULL;
 }
 
-static void XvtControllerSettings_ApplyDraft(XvtControllerSettings* settings) {
+/* configured is false only when the player restores the defaults, so the
+ * selected controller is no longer saved. */
+static void XvtControllerSettings_ApplyDraft(XvtControllerSettings* settings, bool configured) {
 	if (settings->selected_guid[0] &&
 		XvtControllerOptions_FindModel(&settings->draft, settings->selected_guid) < 0) {
 		const AeronControllerSnapshot* device =
 			XvtControllerPage_SelectedController(settings, Aeron_InputSnapshot());
-		if (!device ||
-			!XvtControllerOptions_AddModel(&settings->draft, device, settings->error, sizeof settings->error))
+		if (!device || !XvtControllerOptions_AddModel(&settings->draft, device, Aeron_InputSnapshot(),
+													  settings->error, sizeof settings->error))
 			return;
 		settings->draft.models[settings->draft.count - 1].profile = settings->unconfigured;
 	}
+	const int selected = XvtControllerOptions_FindModel(&settings->draft, settings->selected_guid);
+	if (selected >= 0)
+		settings->draft.models[selected].configured = configured;
 	settings->dirty = !XvtControllerOptions_Equals(&settings->draft, &settings->original);
 	if (!XvtControllerOptions_Validate(&settings->draft, settings->error, sizeof settings->error))
 		return;
@@ -189,7 +194,9 @@ void XvtControllerSettings_Open(XvtControllerSettings* settings, const XvtSettin
 	if (!settings || !config)
 		return;
 	memset(settings, 0, sizeof *settings);
-	settings->original = config->controller;
+	/* The mapping's list: the configured models and the connected gamepads
+	 * that use the defaults. */
+	settings->original = *XvtControllerMapping_Options();
 	settings->draft = settings->original;
 	settings->editor.action_selected = SIZE_MAX;
 	settings->editor.binding_selected = SIZE_MAX;
@@ -229,7 +236,6 @@ bool XvtControllerSettings_Commit(XvtControllerSettings* settings, char* error, 
 	const bool result = XvtConfig_SetController(&settings->draft, error, error_capacity);
 	if (!result)
 		return false;
-	settings->draft = XvtConfig_Settings()->controller;
 	settings->original = settings->draft;
 	settings->dirty = false;
 	return true;
@@ -368,17 +374,17 @@ static float XvtControllerSettings_ControllerAxisValue(const AeronControllerSnap
 static void XvtControllerSettings_InstallAxis(XvtControllerSettings* settings,
 											  const AeronControllerSnapshot* controller, XvtInputAxis axis,
 											  int source) {
-	XvtControllerOptions candidate = settings->draft;
+	static XvtControllerOptions candidate;
+	candidate = settings->draft;
 	int model = XvtControllerOptions_FindModel(&candidate, controller->guid);
 	if (model < 0) {
-		if (!XvtControllerOptions_AddModel(&candidate, controller, settings->error, sizeof settings->error))
+		if (!XvtControllerOptions_AddModel(&candidate, controller, Aeron_InputSnapshot(), settings->error,
+										   sizeof settings->error))
 			return;
 		model = (int)candidate.count - 1;
 		candidate.models[model].profile = settings->unconfigured;
 	}
 	XvtControllerProfile* p = &candidate.models[model].profile;
-	for (size_t i = 0; i < candidate.count; ++i)
-		candidate.models[i].profile.mapping.axes[axis].source = -1;
 	for (int i = 0; i < XVT_INPUT_AXIS_COUNT; ++i)
 		if (p->mapping.axes[i].source == source)
 			p->mapping.axes[i].source = -1;
@@ -386,7 +392,7 @@ static void XvtControllerSettings_InstallAxis(XvtControllerSettings* settings,
 	if (!XvtControllerOptions_Validate(&candidate, settings->error, sizeof settings->error))
 		return;
 	settings->draft = candidate;
-	XvtControllerSettings_ApplyDraft(settings);
+	XvtControllerSettings_ApplyDraft(settings, true);
 }
 
 static void XvtControllerSettings_AssignCapturedAxis(XvtControllerSettings* settings,
@@ -394,14 +400,7 @@ static void XvtControllerSettings_AssignCapturedAxis(XvtControllerSettings* sett
 													 XvtInputAxis axis, int source) {
 	settings->conflict_text[0] = 0;
 	const XvtControllerProfile* p = XvtControllerPage_ActiveProfileConst(settings, controller);
-	for (size_t i = 0; i < settings->draft.count; ++i) {
-		const XvtControllerModel* m = &settings->draft.models[i];
-		if (strcmp(m->guid, controller->guid) && m->profile.mapping.axes[axis].source >= 0) {
-			char text[192];
-			snprintf(text, sizeof text, "%s on %s", k_axis_names[axis], m->name);
-			XvtControllerSettings_AppendText(settings->conflict_text, sizeof settings->conflict_text, text);
-		}
-	}
+	/* Other controllers may bind the same axis: the mapping merges them. */
 	for (int i = 0; i < XVT_INPUT_AXIS_COUNT; ++i)
 		if (i != (int)axis && p->mapping.axes[i].source == source)
 			XvtControllerSettings_AppendText(settings->conflict_text, sizeof settings->conflict_text,
@@ -450,19 +449,19 @@ static void XvtControllerSettings_AxisEditor(XvtControllerSettings* settings, Ae
 	int invert = binding->invert;
 	if (AeronUi_Toggle(ui, "Invert", &invert)) {
 		binding->invert = invert != 0;
-		XvtControllerSettings_ApplyDraft(settings);
+		XvtControllerSettings_ApplyDraft(settings, true);
 	}
 	if (axis != XVT_INPUT_AXIS_THROTTLE) {
 		float deadzone_percent = binding->deadzone * 100.0f;
 		const float minimum = 0.0f;
 		if (AeronUi_SliderFloat(ui, "Deadzone", &deadzone_percent, minimum, 100.0f, 1.0f, "%.1f%%")) {
 			binding->deadzone = deadzone_percent / 100.0f;
-			XvtControllerSettings_ApplyDraft(settings);
+			XvtControllerSettings_ApplyDraft(settings, true);
 		}
 	}
 	if (AeronUi_ButtonEnabled(ui, "Clear Binding", binding->source >= 0)) {
 		binding->source = -1;
-		XvtControllerSettings_ApplyDraft(settings);
+		XvtControllerSettings_ApplyDraft(settings, true);
 	}
 	AeronUi_PopId(ui);
 }
@@ -540,7 +539,7 @@ static void XvtControllerSettings_AddCapturedBinding(XvtControllerSettings* sett
 	profile->bindings[profile->binding_count++] =
 		(XvtInputActionBinding) { .source = *source, .action = settings->editor.selected_action };
 	settings->editor.binding_selected = SIZE_MAX;
-	XvtControllerSettings_ApplyDraft(settings);
+	XvtControllerSettings_ApplyDraft(settings, true);
 }
 
 static void XvtControllerSettings_FindBindingCapture(XvtControllerSettings* settings, AeronUiContext* ui,
@@ -623,13 +622,13 @@ static void XvtControllerSettings_BindingDetailModal(XvtControllerSettings* sett
 			int threshold = (int)(source->threshold * 100.0f + 0.5f);
 			if (AeronUi_SliderInt(ui, "Axis Threshold", &threshold, 5, 100, 5, "%d%%")) {
 				source->threshold = (float)threshold / 100.0f;
-				XvtControllerSettings_ApplyDraft(settings);
+				XvtControllerSettings_ApplyDraft(settings, true);
 			}
 		}
 		if (XvtBindingsEditor_Remove(ui)) {
 			XvtControllerSettings_RemoveBinding(profile, profile_index);
 			settings->editor.binding_selected = SIZE_MAX;
-			XvtControllerSettings_ApplyDraft(settings);
+			XvtControllerSettings_ApplyDraft(settings, true);
 		}
 	}
 	AeronUi_Separator(ui);
@@ -660,7 +659,7 @@ static void XvtControllerSettings_BindingConflictModal(XvtControllerSettings* se
 		if (existing != SIZE_MAX) {
 			profile->bindings[existing].action = settings->editor.selected_action;
 			settings->editor.binding_selected = SIZE_MAX;
-			XvtControllerSettings_ApplyDraft(settings);
+			XvtControllerSettings_ApplyDraft(settings, true);
 		}
 	}
 }
@@ -678,22 +677,18 @@ static void XvtControllerSettings_RestoreModal(XvtControllerSettings* settings, 
 	AeronUi_Help(ui, "Reset this model's bindings? Other controllers keep their assignments.");
 	AeronUi_BeginColumns(ui, 2, NULL);
 	if (AeronUi_Button(ui, "Reset to defaults")) {
-		XvtControllerOptions candidate = settings->draft;
-		if (XvtControllerOptions_AddModel(&candidate, device, settings->error, sizeof settings->error)) {
+		static XvtControllerOptions candidate;
+		candidate = settings->draft;
+		if (XvtControllerOptions_AddModel(&candidate, device, Aeron_InputSnapshot(), settings->error,
+										  sizeof settings->error)) {
 			int model = XvtControllerOptions_FindModel(&candidate, device->guid);
 			XvtControllerModel* selected = &candidate.models[model];
 			selected->kind = device->kind;
 			XvtControllerOptions_ClearProfile(&selected->profile, device->kind);
-			if (device->kind == AERON_CONTROLLER_KIND_GAMEPAD) {
+			if (device->kind == AERON_CONTROLLER_KIND_GAMEPAD)
 				selected->profile = config->gamepad_defaults;
-				for (size_t i = 0; i < candidate.count; ++i)
-					if (i != (size_t)model)
-						for (int axis = 0; axis < XVT_INPUT_AXIS_COUNT; ++axis)
-							if (candidate.models[i].profile.mapping.axes[axis].source >= 0)
-								selected->profile.mapping.axes[axis].source = -1;
-			}
 			settings->draft = candidate;
-			XvtControllerSettings_ApplyDraft(settings);
+			XvtControllerSettings_ApplyDraft(settings, false);
 			XvtControllerSettings_ResetDeviceEditState(settings, ui);
 		}
 		settings->restore_modal_open = 0;
@@ -724,20 +719,8 @@ void XvtControllerSettings_Draw(XvtControllerSettings* settings, AeronUiContext*
 		for (int i = 0; i < AERON_CONTROLLER_MAX; ++i)
 			if (input->controllers[i].connected && !strcmp(input->controllers[i].guid, controller->guid))
 				++matches;
-		if (matches > 1) {
+		if (matches > 1)
 			AeronUi_Help(ui, "Bindings shared by all controllers of this model.");
-			uint32_t preferred = XvtControllerMapping_AnalogInstance(controller->guid);
-			int model = XvtControllerOptions_FindModel(&settings->draft, controller->guid);
-			const AeronControllerSnapshot* analog =
-				model >= 0 ? XvtControllerMapping_Resolve(&settings->draft.models[model], input, preferred)
-						   : NULL;
-			for (int i = 0; analog && i < AERON_CONTROLLER_MAX; ++i)
-				if (analog == &input->controllers[i]) {
-					char text[160];
-					snprintf(text, sizeof text, "Analog input: %s #%d", analog->name, i + 1);
-					AeronUi_Help(ui, text);
-				}
-		}
 	}
 	int model = controller ? XvtControllerOptions_FindModel(&settings->draft, controller->guid) : -1;
 	bool compatible = !controller || model < 0 || settings->draft.models[model].kind == controller->kind;

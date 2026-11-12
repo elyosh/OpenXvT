@@ -1,4 +1,5 @@
 #include "xvt_runtime/config/controller_config.h"
+#include "aeron/log.h"
 #include "xvt_runtime/config/config.h"
 #include <ctype.h>
 #include <math.h>
@@ -347,13 +348,19 @@ bool XvtControllerConfig_Parse(const AeronConfigFile* document, XvtControllerOpt
 		return false;
 	memset(options, 0, sizeof *options);
 	options->count = AeronConfigNode_SequenceCount(list);
-	if (options->count > XVT_CONTROLLER_MODEL_CAP)
-		return XvtControllerConfig_ConfigError(error, capacity, "controller model capacity exceeded");
+	/* The list is ordered by last use, so the extra controllers are the ones
+	 * used the longest ago. */
+	if (options->count > XVT_CONTROLLER_MODEL_CAP) {
+		Aeron_LogWarn("xvt.config", "only the first %d of %zu controllers are kept", XVT_CONTROLLER_MODEL_CAP,
+					  options->count);
+		options->count = XVT_CONTROLLER_MODEL_CAP;
+	}
 	for (size_t i = 0; i < options->count; ++i) {
 		const AeronConfigNode* node = AeronConfigNode_SequenceGet(list, i);
 		if (!Keys(node, keys, 5, error, capacity))
 			return false;
 		XvtControllerModel* m = &options->models[i];
+		m->configured = true;
 		char path[128], field[160];
 		snprintf(path, sizeof path, "input.controllers[%zu]", i);
 		snprintf(field, sizeof field, "%s.guid", path);
@@ -535,13 +542,18 @@ bool XvtControllerConfig_Write(AeronConfigFile* document, const XvtControllerOpt
 }
 
 bool XvtConfig_SetController(const XvtControllerOptions* options, char* error, size_t capacity) {
+	static XvtControllerOptions configured;
 	AeronConfigFile* candidate = NULL;
 	AeronConfigError detail;
 	if (!XvtControllerOptions_Validate(options, error, capacity))
 		return false;
+	/* Controllers that still use the defaults aren't saved. Discovery gives
+	 * them the defaults again at the next start. */
+	configured = *options;
+	XvtControllerOptions_KeepConfigured(&configured);
 	if (!AeronConfigFile_Clone(XvtConfig_UserDocument(), &candidate, &detail))
 		return XvtSettings_FileError(&detail, error, capacity);
-	bool success = XvtControllerConfig_Write(candidate, options, &detail);
+	bool success = XvtControllerConfig_Write(candidate, &configured, &detail);
 	if (!success)
 		XvtSettings_FileError(&detail, error, capacity);
 	else
